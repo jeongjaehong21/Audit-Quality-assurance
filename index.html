@@ -797,7 +797,7 @@ function getGithubPersonalConfig(){
 function setGithubConfig(cfg){ try{ localStorage.setItem(GITHUB_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
 function clearGithubConfig(){ try{ localStorage.removeItem(GITHUB_CFG_KEY); }catch(e){} }
 function githubConfigReady(){ const c=getGithubConfig(); return !!(c && c.owner && c.repo && c.token); }
-function githubLog(msg){ const el=document.getElementById('githubStatus'); if(el) el.textContent = msg; }
+function githubLog(msg){ const el=document.getElementById('githubStatus'); if(el){ el.textContent = msg; el.style.display = msg ? 'block' : 'none'; } }
 
 let githubIssueCache = null; // { [dataKey]: {number, body} }
 
@@ -916,7 +916,7 @@ function openGithubSettingsModal(){
     githubLog('연결 확인 중...');
     try{
       await ghLoadIssueCache();
-      githubLog('✅ GitHub 연동됨: '+owner+'/'+repo+' (내 토큰) — 모든 직원과 실시간 공유됩니다');
+      githubLog('');
       await loadAll();
       applyRoleUI();
       showToast('GitHub 데이터를 불러왔습니다');
@@ -933,9 +933,8 @@ function initGithubStorage(){
   const btn = document.getElementById('githubSettingsBtn');
   if(btn) btn.addEventListener('click', openGithubSettingsModal);
   if(githubConfigReady()){
-    const c = getGithubConfig();
-    const usingPersonal = !!getGithubPersonalConfig().token;
-    githubLog('GitHub 연동됨: '+c.owner+'/'+c.repo+(usingPersonal? ' (내 토큰)' : ' (자동/공용 토큰)')+' — 모든 직원과 실시간 공유됩니다');
+    // 정상 연결 상태에서는 굳이 매번 보여줄 필요가 없으니 상태 문구는 숨기고, 설정 버튼만 남겨둡니다.
+    githubLog('');
   } else {
     githubLog('⚙️ GitHub 연동 설정이 필요합니다. 설정 전까지는 데이터가 이 브라우저에만 저장되고 다른 직원과 공유되지 않습니다.');
   }
@@ -1797,7 +1796,7 @@ function openLoginModal(){
     const facc = userAccounts.fieldAuditors.find(a=>a.name===id && a.password===pw);
     if(facc){
       role='field'; loggedInName=facc.name; fieldProjectId=facc.projectId; fieldSelectedProjectId=null; authRole='field'; authName=facc.name; authProjectId=facc.projectId; saveSessionLocal(); root.innerHTML=''; applyRoleUI(); showToast(`${facc.name}님(현장심사원)으로 로그인되었습니다`);
-      if(githubConfigReady()) githubLog('GitHub 자동 연동됨 (현장심사원 전용) — 별도 설정 없이 저장됩니다');
+      if(githubConfigReady()) githubLog('');
     } else {
       document.getElementById('loginError').textContent='이름 또는 비밀번호가 올바르지 않습니다. (계정이 없다면 심사원에게 등록을 요청하세요)';
     }
