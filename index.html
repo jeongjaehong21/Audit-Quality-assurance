@@ -5,18 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>프로젝트 품질심사 &amp; KPI 종합평가 콘솔</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
-<!-- ============================================================================
-     [CSP로 외부/로컬 스크립트 로딩이 모두 막히는 사내망 전용 대안]
-     위 <script src="..."> 줄이 계속 실패한다면, 아래 <script id="msalInline"> 태그 안에
-     msal-browser.min.js 파일 내용을 그대로 복사해서 붙여넣어 주세요. 방법:
-       1) https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js 를 다운로드
-       2) 메모장/VS Code 등으로 그 파일을 열어 전체 선택(Ctrl+A) 후 복사(Ctrl+C)
-       3) 이 HTML 파일을 텍스트 편집기로 열어, 아래 "여기에 붙여넣기" 주석 자리에 그대로 붙여넣기
-       4) 저장 후 SharePoint에 다시 업로드
-     이 방법을 쓰면 위 <script src> 줄은 지우거나 그대로 둬도 상관없습니다(어차피 실패해도 무해합니다).
-     ============================================================================ -->
-<script id="msalInline">/* 여기에 msal-browser.min.js 파일 내용 전체를 붙여넣으세요 (이 주석을 지우고 그 자리에 붙여넣기) */</script>
 <style>
   :root{
     --ink:#1c2430; --ink-soft:#5a6472;
@@ -296,14 +284,9 @@
   <aside class="sidebar">
     <div class="brand">품질심사 콘솔<small>Project Audit &amp; KPI Console</small></div>
 
-    <div id="m365Box" style="display:none;background:rgba(255,255,255,.06);border-radius:5px;padding:8px 9px;font-size:10.5px;">
-      <div id="m365Status" style="color:#c3cad8;margin-bottom:6px;white-space:pre-line;">M365 연동 대기 중</div>
-      <button class="side-btn" id="m365LoginBtn" style="width:100%;font-size:11px;padding:7px;">Microsoft 계정으로 로그인</button>
-      <div id="m365RedirectBox" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);">
-        <div style="color:#c3cad8;margin-bottom:4px;">Entra ID에 등록할 리디렉션 URI (SPA):</div>
-        <div id="m365RedirectUri" style="word-break:break-all;background:rgba(0,0,0,.25);padding:5px 6px;border-radius:3px;font-family:monospace;font-size:9.5px;color:#e9dcc2;"></div>
-        <button class="side-btn" id="m365CopyRedirectBtn" style="width:100%;font-size:10.5px;padding:5px;margin-top:5px;">📋 주소 복사</button>
-      </div>
+    <div id="githubBox" style="display:none;background:rgba(255,255,255,.06);border-radius:5px;padding:8px 9px;font-size:10.5px;">
+      <div id="githubStatus" style="color:#c3cad8;margin-bottom:6px;white-space:pre-line;">GitHub 연동 대기 중</div>
+      <button class="side-btn" id="githubSettingsBtn" style="width:100%;font-size:11px;padding:7px;">🔗 GitHub 연동 설정</button>
     </div>
 
     <div class="role-switch" id="roleSwitchBox">
@@ -738,265 +721,202 @@ function matchField(header){
 }
 
 /* =======================================================================
-   ================= M365 / SharePoint 연동 설정 (Graph API) =============
+   ================= GitHub Issues 기반 공유 데이터 저장소 =============
    =======================================================================
-   확인된 배포 위치: 이 앱 파일은 테넌트 루트 사이트의 SiteAssets 라이브러리에 있습니다.
-     파일 주소: https://tis21.sharepoint.com/SiteAssets/Audit-QA.html
-     (라이브러리 화면: https://tis21.sharepoint.com/SiteAssets/Forms/AllItems.aspx)
-   QA_AppData 리스트도 같은 테넌트 루트 사이트에 있습니다:
-     https://tis21.sharepoint.com/Lists/QA_AppData/AllItems.aspx
-   → 앱 파일과 QA_AppData가 같은 사이트(테넌트 루트)에 있어 siteUrl 설정이 단순합니다.
+   배포 환경: 서버 없는 정적 호스팅(GitHub Pages)에 올리고, Teams/SharePoint에는
+   링크 또는 iframe(Embed)으로 삽입해서 사용합니다. 이 파일 하나로 완결되는 구조이며
+   빌드 과정이나 별도 서버가 필요 없습니다.
 
-   [배포 담당자가 할 일 — 딱 1가지만 남았습니다]
-   1) Entra ID(Azure AD) 앱 등록의 인증(Authentication) > "단일 페이지 애플리케이션(SPA)"
-      플랫폼에 아래 리디렉션 URI를 정확히(대소문자 포함) 등록하세요:
-        https://tis21.sharepoint.com/SiteAssets/Audit-QA.html
-      ⚠️ 라이브러리 목록 페이지(.../SiteAssets/Forms/AllItems.aspx)나 공유 링크(:u:/r/...) 는
-      실제 파일 주소가 아니니 등록하지 마세요. 확실하지 않으면:
-        a. 그 링크를 눌러 파일을 실제로 열어본 뒤,
-        b. 이 앱 좌측 하단 "M365 연동" 박스에 자동으로 표시되는
-           "Entra ID에 등록할 리디렉션 URI" 값을 그대로 복사해서,
-        c. Entra ID 앱 등록에 정확히 그 값으로 등록하세요.
-      (공유 링크의 겉모습만 보고 URI를 손으로 옮겨 적으면 쿼리스트링/대소문자 차이로 실패하기 쉽습니다.)
-      - API 권한: Microsoft Graph > 위임된 권한 > Sites.ReadWrite.All (관리자 동의 필요)
-      clientId / tenantId는 이미 입력되어 있습니다.
+   데이터 공유 방식: 직원 여러 명이 동시에 쓰는 실제 심사 데이터(체크리스트, 프로젝트,
+   계정, KPI 설정 등)는 "GitHub Issues API"를 데이터베이스처럼 사용합니다.
+     - 데이터 키(예: audits_index_v3)마다 그 저장소에 전용 Issue를 1개 만들고,
+       그 Issue의 본문(body)에 JSON 문자열을 저장합니다.
+     - 값을 불러올 때는 그 Issue의 body를 읽고, 저장할 때는 Issue를 수정(PATCH)합니다.
+     - 모든 사용자가 같은 GitHub 저장소를 바라보므로, 새로고침하면 다른 사람이 저장한
+       최신 데이터를 그대로 확인할 수 있습니다(로컬스토리지만으로는 이게 불가능합니다).
 
-   [SharePoint에서 HTML 파일이 실행이 아니라 다운로드되거나 빈 화면만 뜨는 경우]
-   일부 SharePoint 사이트는 보안상 "사용자 지정 스크립트(Custom Script)"가 꺼져 있어 업로드한
-   HTML/JS 파일이 페이지로 실행되지 않고 다운로드되거나 오작동할 수 있습니다. 이 경우 사이트 관리자가
-   PnP PowerShell로 `Set-PnPSite -NoScriptSite $false` 를 실행해 사용자 지정 스크립트를 허용해야
-   합니다(테넌트 정책에 따라 제한될 수 있음 — IT팀에 문의).
+   보안: 소스코드에 GitHub 토큰을 넣지 않습니다. 최초 접속 시(또는 좌측 하단
+   "GitHub 연동 설정" 버튼) 관리자가 저장소 정보(owner/repo)와 Personal Access Token을
+   입력하면, 이 값은 "이 브라우저에만" 저장됩니다(localStorage). 다른 사람 화면에는
+   보이지 않고 코드에도 남지 않습니다. 데이터 자체(심사 결과 등)는 토큰을 입력한
+   모든 사용자가 GitHub Issues를 통해 함께 봅니다.
 
-   [사내망에서 "msal 라이브러리를 불러오지 못했습니다" 오류가 뜨는 경우]
-   회사 방화벽/프록시가 외부 CDN(alcdn.msauth.net, jsdelivr, unpkg)으로 나가는 요청을 막고 있을 때
-   나는 오류입니다. 가장 확실한 해결책은 msal-browser.min.js 파일을 이 HTML 파일과 **같은
-   SiteAssets 폴더**에 함께 업로드해 두는 것입니다 — 그러면 외부망 접속 없이 항상 정상 동작합니다.
-     1. https://www.npmjs.com/package/@azure/msal-browser (버전 2.35.0) 또는 회사에서 허용하는
-        경로로 msal-browser.min.js 파일을 내려받습니다.
-     2. 이 HTML 파일과 같은 SiteAssets 폴더에 "msal-browser.min.js" 라는 이름으로 업로드합니다.
-     3. 앱이 자동으로 이 로컬 파일을 최우선으로 사용합니다(코드 수정 불필요).
-
-   [자동으로 되어 있는 것]
-   - redirectUri는 이 파일이 실제로 열리는 주소를 그대로 사용합니다(수동 설정 불필요).
-   - siteUrl은 QA_AppData 리스트 위치(테넌트 루트 사이트)로 고정되어 있어, 앱을 다른 SiteAssets
-     라이브러리로 옮기더라도(예: 다른 팀 사이트) 데이터 저장 위치는 항상 QA_AppData 그대로 유지됩니다.
-   - enabled는 true로 켜져 있습니다. clientId/tenantId가 비어 있으면 자동으로 "설정 필요" 상태로
-     표시되며 오류 없이 기존처럼(로컬/Claude 저장소) 동작합니다.
+   [배포 담당자가 처음 한 번 할 일]
+   1) GitHub에 데이터 저장용 저장소(Repository)를 하나 만듭니다(Public 또는 Private 모두 가능).
+   2) GitHub → Settings → Developer settings → Personal access tokens →
+      Fine-grained tokens → 위에서 만든 저장소를 선택 → Repository permissions에서
+      "Issues: Read and write" 권한을 부여해 토큰을 생성합니다.
+   3) 이 앱을 열고 "GitHub 연동 설정"에서 owner(계정명 또는 조직명) / repo(저장소 이름) /
+      방금 만든 토�큰을 입력하고 저장하면 바로 연동됩니다. 직원들도 각자 이 설정을
+      한 번씩 입력해야 데이터를 함께 읽고 쓸 수 있습니다(조회만 하는 인원은 읽기 권한만
+      있는 토큰으로도 충분합니다).
    ======================================================================= */
-const M365_CONFIG = {
-  enabled: true,                           // SharePoint 연동 사용. clientId/tenantId를 채우기 전엔 자동으로 대기 상태로 표시됩니다.
-  clientId: 'bfbe9d7a-674f-4a6c-b533-1faf8dd99ee4', // ← Entra ID 앱 등록의 "애플리케이션(클라이언트) ID"
-  tenantId: 'd626830a-2676-4b41-aa6b-80ee7c719351', // ← Entra ID "디렉터리(테넌트) ID" (tis21.sharepoint.com 테넌트)
-  redirectUri: window.location.origin + window.location.pathname, // 앱이 실제로 열리는 주소(자동)
-  siteUrl: 'https://tis21.sharepoint.com',  // QA_AppData 리스트가 있는 사이트(테넌트 루트) — 앱 실행 위치와 무관하게 고정
-  listName: 'QA_AppData',
-  scopes: ['Sites.ReadWrite.All'],
-};
-const M365_CREDENTIALS_READY = !!(M365_CONFIG.clientId && M365_CONFIG.tenantId);
+const GITHUB_CFG_KEY = 'qa_github_config_v1'; // 이 브라우저에만 저장되는 연동 설정(owner/repo/token)
+const GITHUB_DATA_LABEL = 'qa-data';
 
-let msalInstance = null;
-let graphAccount = null;
-let graphSiteId = null;
-let graphListId = null;
-let graphItemCache = null; // {Title -> {itemId, value}}
+function getGithubConfig(){
+  try{ const raw = localStorage.getItem(GITHUB_CFG_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+function setGithubConfig(cfg){ try{ localStorage.setItem(GITHUB_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
+function clearGithubConfig(){ try{ localStorage.removeItem(GITHUB_CFG_KEY); }catch(e){} }
+function githubConfigReady(){ const c=getGithubConfig(); return !!(c && c.owner && c.repo && c.token); }
+function githubLog(msg){ const el=document.getElementById('githubStatus'); if(el) el.textContent = msg; }
 
-function m365Log(msg){ const el=document.getElementById('m365Status'); if(el) el.textContent = msg; }
+let githubIssueCache = null; // { [dataKey]: {number, body} }
 
-async function graphFetch(url, options){
-  const account = graphAccount || (msalInstance && msalInstance.getAllAccounts()[0]);
-  if(!account) throw new Error('로그인이 필요합니다');
-  const tokenResp = await msalInstance.acquireTokenSilent({ scopes: M365_CONFIG.scopes, account }).catch(async ()=>{
-    return await msalInstance.acquireTokenPopup({ scopes: M365_CONFIG.scopes });
-  });
-  const headers = Object.assign({ 'Authorization': 'Bearer '+tokenResp.accessToken, 'Content-Type': 'application/json' }, (options&&options.headers)||{});
+async function ghApi(path, options){
+  const c = getGithubConfig();
+  if(!c || !c.owner || !c.repo || !c.token) throw new Error('GitHub 연동 설정이 필요합니다');
+  const url = `https://api.github.com/repos/${c.owner}/${c.repo}${path}`;
+  const headers = Object.assign({
+    'Authorization': 'token '+c.token,
+    'Accept': 'application/vnd.github+json',
+    'Content-Type': 'application/json'
+  }, (options&&options.headers)||{});
   const res = await fetch(url, Object.assign({}, options, {headers}));
-  if(!res.ok){ const txt = await res.text().catch(()=> ''); throw new Error(`Graph API 오류 (${res.status}): ${txt}`); }
+  if(!res.ok){
+    const txt = await res.text().catch(()=>'');
+    let detail = txt;
+    try{ detail = JSON.parse(txt).message || txt; }catch(e){}
+    if(res.status===404) throw new Error(`GitHub 저장소를 찾을 수 없습니다(${c.owner}/${c.repo}). owner/repo 이름을 확인해 주세요.`);
+    if(res.status===401 || res.status===403) throw new Error(`GitHub 인증 실패: 토큰이 잘못됐거나 권한이 부족합니다. (${detail})`);
+    throw new Error(`GitHub API 오류 (${res.status}): ${detail}`.slice(0,300));
+  }
   if(res.status===204) return null;
   return res.json();
 }
-async function resolveSiteAndList(){
-  if(graphSiteId && graphListId) return;
-  const url = new URL(M365_CONFIG.siteUrl);
-  const hostname = url.hostname;
-  const sitePath = url.pathname.replace(/\/+$/, ''); // e.g. /sites/YOURSITE, or '' for the tenant root site
-  m365Log('SharePoint 사이트 확인 중...');
-  // 루트(최상위) 사이트는 "hostname" 만으로, 하위 사이트는 "hostname:경로" 형식으로 조회합니다.
-  const siteLookupUrl = sitePath
-    ? `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}`
-    : `https://graph.microsoft.com/v1.0/sites/${hostname}`;
-  const site = await graphFetch(siteLookupUrl);
-  graphSiteId = site.id;
-  const lists = await graphFetch(`https://graph.microsoft.com/v1.0/sites/${graphSiteId}/lists?$filter=displayName eq '${M365_CONFIG.listName}'`);
-  if(!lists.value || !lists.value.length){ throw new Error(`"${M365_CONFIG.listName}" 리스트를 찾을 수 없습니다. SharePoint 사이트에 먼저 만들어주세요.`); }
-  graphListId = lists.value[0].id;
+/** 데이터 키를 담은 이슈들을 전부 찾아 캐시에 올립니다. 제목 형식: "[QA_DATA] key" */
+async function ghLoadIssueCache(){
+  githubIssueCache = {};
+  let page = 1;
+  while(true){
+    const items = await ghApi(`/issues?state=all&labels=${encodeURIComponent(GITHUB_DATA_LABEL)}&per_page=100&page=${page}`);
+    if(!items || !items.length) break;
+    items.forEach(it=>{
+      const m = /^\[QA_DATA\]\s*(.+)$/.exec(it.title||'');
+      if(m) githubIssueCache[m[1]] = { number: it.number, body: it.body||'' };
+    });
+    if(items.length<100) break;
+    page++;
+  }
 }
-async function graphLoadItemCache(){
-  await resolveSiteAndList();
-  m365Log('데이터 불러오는 중...');
-  const data = await graphFetch(`https://graph.microsoft.com/v1.0/sites/${graphSiteId}/lists/${graphListId}/items?expand=fields&$top=200`);
-  graphItemCache = {};
-  (data.value||[]).forEach(it=>{
-    const title = it.fields && it.fields.Title;
-    if(title) graphItemCache[title] = {itemId: it.id, value: it.fields.JSONValue||''};
-  });
-}
-const graphStorage = {
+const githubStorage = {
   async get(key){
-    if(!graphItemCache) await graphLoadItemCache();
-    const rec = graphItemCache[key];
-    return rec? {key, value:rec.value, shared:true} : null;
+    if(!githubIssueCache) await ghLoadIssueCache();
+    const rec = githubIssueCache[key];
+    return rec ? {key, value: rec.body, shared:true} : null;
   },
   async set(key, value){
-    if(!graphItemCache) await graphLoadItemCache();
-    const rec = graphItemCache[key];
+    if(!githubIssueCache) await ghLoadIssueCache();
+    const rec = githubIssueCache[key];
     if(rec){
-      await graphFetch(`https://graph.microsoft.com/v1.0/sites/${graphSiteId}/lists/${graphListId}/items/${rec.itemId}/fields`, {
-        method:'PATCH', body: JSON.stringify({JSONValue:value})
-      });
-      rec.value = value;
+      await ghApi(`/issues/${rec.number}`, { method:'PATCH', body: JSON.stringify({ body: value }) });
+      rec.body = value;
     } else {
-      const created = await graphFetch(`https://graph.microsoft.com/v1.0/sites/${graphSiteId}/lists/${graphListId}/items`, {
-        method:'POST', body: JSON.stringify({fields:{Title:key, JSONValue:value}})
-      });
-      graphItemCache[key] = {itemId: created.id, value};
+      const created = await ghApi(`/issues`, { method:'POST', body: JSON.stringify({ title:`[QA_DATA] ${key}`, body:value, labels:[GITHUB_DATA_LABEL] }) });
+      githubIssueCache[key] = { number: created.number, body: value };
     }
     return {key, value, shared:true};
   }
 };
-function loadScriptOnce(src, timeoutMs){
-  return new Promise((resolve, reject)=>{
-    const el = document.createElement('script');
-    el.src = src;
-    let done = false;
-    el.onload = ()=>{ if(!done){ done=true; resolve(); } };
-    el.onerror = ()=>{ if(!done){ done=true; reject(new Error('스크립트 로드 실패: '+src)); } };
-    document.head.appendChild(el);
-    setTimeout(()=>{ if(!done){ done=true; reject(new Error('스크립트 로드 시간초과: '+src)); } }, timeoutMs||8000);
-  });
-}
-/** msal-browser는 <head>의 고정 <script> 태그로 우선 로드를 시도합니다.
- *  사내망/프록시 등으로 그 시도가 막혔거나 아직 끝나지 않은 경우를 대비해,
- *  실제로 사용하기 직전에 로드 여부를 확인하고 필요하면 대체 CDN으로 다시 시도합니다. */
-async function ensureMsalLoaded(){
-  if(typeof msal !== 'undefined') return;
-  const sources = [
-    './msal-browser.min.js', // 이 HTML 파일과 같은 폴더에 msal-browser.min.js를 올려두면(권장) 외부망 없이도 항상 작동합니다.
-    'https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js',      // Microsoft 공식 CDN (미국 서부)
-    'https://alcdn.msftauth.net/browser/2.35.0/js/msal-browser.min.js',    // Microsoft 공식 CDN (유럽 북부, 위 주소의 대체 리전)
-    'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.35.0/lib/msal-browser.min.js',
-    'https://unpkg.com/@azure/msal-browser@2.35.0/lib/msal-browser.min.js',
-  ];
-  const attempts = [];
-  for(const src of sources){
-    try{
-      await loadScriptOnce(src, 8000);
-      if(typeof msal !== 'undefined') return;
-      attempts.push(src+' → 로드는 됐지만 msal 객체가 생성되지 않음');
-    }catch(e){ attempts.push(src+' → '+e.message); }
-  }
-  const localFailed = attempts[0] && attempts[0].startsWith('./msal-browser.min.js');
-  const hint = localFailed
-    ? '\n\n👉 가장 유력한 원인: 이 HTML 파일과 같은 SiteAssets 폴더에 "msal-browser.min.js" 파일이 아직 없습니다. 그 파일을 같은 폴더에 업로드하면 외부망 차단 여부와 무관하게 즉시 해결됩니다(파일명을 정확히 "msal-browser.min.js"로 맞춰주세요).'
-    : '';
-  throw new Error('msal 라이브러리를 불러오지 못했습니다. 시도한 경로와 결과:\n'+attempts.map((a,i)=>`  ${i+1}) ${a}`).join('\n')+hint);
-}
-async function initM365(){
-  if(!M365_CONFIG.enabled) return;
-  document.getElementById('m365Box').style.display = 'block';
-  if(!M365_CREDENTIALS_READY){
-    m365Log('⚙️ 설정 필요: Client ID / Tenant ID 미입력 (코드 상단 M365_CONFIG). 채우기 전까지는 로컬/Claude 저장소로 정상 동작합니다.');
-    const btn = document.getElementById('m365LoginBtn');
-    btn.disabled = true;
-    btn.title = 'Client ID / Tenant ID를 먼저 입력하세요';
-    return;
-  }
-  try{
-    m365Log('필요한 로그인 구성요소를 불러오는 중...');
-    await ensureMsalLoaded();
-    msalInstance = new msal.PublicClientApplication({
-      auth: { clientId: M365_CONFIG.clientId, authority: 'https://login.microsoftonline.com/'+M365_CONFIG.tenantId, redirectUri: M365_CONFIG.redirectUri },
-      cache: { cacheLocation: 'sessionStorage' }
-    });
-    // Entra ID 앱 등록에 그대로 붙여넣을 수 있도록 실제 사용 중인 리디렉션 URI를 화면에 표시합니다.
-    const redirectBox = document.getElementById('m365RedirectBox');
-    const redirectUriEl = document.getElementById('m365RedirectUri');
-    if(redirectBox && redirectUriEl){
-      redirectUriEl.textContent = M365_CONFIG.redirectUri;
-      redirectBox.style.display = 'block';
-      const copyBtn = document.getElementById('m365CopyRedirectBtn');
-      if(copyBtn) copyBtn.onclick = async ()=>{
-        try{ await navigator.clipboard.writeText(M365_CONFIG.redirectUri); showToast('리디렉션 URI를 복사했습니다'); }
-        catch(e){ showToast('복사 실패 — 위 주소를 직접 선택해 복사해 주세요'); }
-      };
-    }
-    await msalInstance.handleRedirectPromise().catch(()=>{});
-    const accounts = msalInstance.getAllAccounts();
-    if(accounts.length){ graphAccount = accounts[0]; m365Log('로그인됨: '+graphAccount.username); document.getElementById('m365LoginBtn').textContent='새로고침'; }
-    else { m365Log('Microsoft 계정 로그인이 필요합니다 (사이트: '+M365_CONFIG.siteUrl+')'); }
-    document.getElementById('m365LoginBtn').addEventListener('click', async ()=>{
-      try{
-        if(!graphAccount){
-          const resp = await msalInstance.loginPopup({ scopes: M365_CONFIG.scopes });
-          graphAccount = resp.account;
-          m365Log('로그인됨: '+graphAccount.username);
-        }
-        await loadAll();
-        applyRoleUI();
-        showToast('M365 SharePoint 데이터를 불러왔습니다');
-      }catch(err){
-        console.error(err);
-        if(err && /AADSTS500113/.test(err.message||'')){
-          m365Log('⚠️ Entra ID 앱 등록에 리디렉션 URI가 등록되지 않았습니다. 아래 "리디렉션 URI"를 복사해서, Entra ID > 앱 등록 > 인증 > \"단일 페이지 애플리케이션(SPA)\" 플랫폼에 정확히 추가해 주세요.');
-        } else {
-          m365Log('로그인/연결 실패: '+err.message);
-        }
-      }
-    });
-  }catch(err){
-    // MSAL 초기화 자체가 실패해도(잘못된 redirectUri, 네트워크 차단 등) 나머지 앱 기능은 정상 동작해야 합니다.
-    console.error('M365 초기화 실패:', err);
-    m365Log('⚠️ M365 초기화 실패: '+(err && err.message ? err.message : err)+' (로컬/Claude 저장소로 계속 사용 가능합니다)');
-    const btn = document.getElementById('m365LoginBtn');
-    btn.textContent = '다시 시도';
-    const retry = ()=>{ btn.removeEventListener('click', retry); initM365(); };
-    btn.addEventListener('click', retry);
-  }
-}
-/** 통합 storage 어댑터 — 아래 loadAll/persistAll은 이 객체만 사용합니다.
- *  우선순위: M365(Graph)가 활성화&로그인 상태 → Graph 리스트
- *           Claude 아티팩트 환경(window.storage 존재) → Claude 내장 저장소
- *           그 외 → 저장 불가(내보내기/가져오기 JSON 사용) */
-/** localStorage backend — used when this file is hosted outside Claude (e.g. an M365 Teams tab),
- *  where window.storage does not exist. NOTE: localStorage is per-browser/per-device only —
- *  it does NOT sync data between different people's computers. For real multi-user shared data
- *  in Teams, use the M365_CONFIG (SharePoint via Graph) above, or JSON export/import to share files. */
+
+/** localStorage는 GitHub 연동을 아직 설정하지 않은 "구성 전" 상태에서만 임시로 쓰입니다.
+ *  이 상태에서는 데이터가 이 브라우저에만 남고 다른 직원과 공유되지 않는다는 점을
+ *  화면에 명확히 경고합니다(githubConfigReady()가 false일 때 initGithubStorage에서 표시). */
 const LOCAL_PREFIX = 'qa_console_v1__';
 function localStorageOK(){
   try{ if(typeof localStorage==='undefined') return false; const k='__qa_probe__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; }
 }
 const localStorageBackend = {
   async get(key){
-    try{ const v = localStorage.getItem(LOCAL_PREFIX+key); return v!==null? {key, value:v, shared:true} : null; }catch(e){ return null; }
+    try{ const v = localStorage.getItem(LOCAL_PREFIX+key); return v!==null? {key, value:v, shared:false} : null; }catch(e){ return null; }
   },
   async set(key, value){
-    localStorage.setItem(LOCAL_PREFIX+key, value); return {key, value, shared:true};
+    localStorage.setItem(LOCAL_PREFIX+key, value); return {key, value, shared:false};
   }
 };
-/** Priority: M365 Graph(SharePoint, real multi-user) > Claude 내장 storage(테스트용) > localStorage(개인 브라우저 저장, Teams 배포시 기본) > 없음 */
+function openGithubSettingsModal(){
+  const root = document.getElementById('modalRoot');
+  const c = getGithubConfig() || {};
+  root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:480px;">
+    <h3 style="margin-top:0;">🔗 GitHub 연동 설정</h3>
+    <div class="hint" style="margin-bottom:10px;">
+      데이터를 저장·공유할 GitHub 저장소 정보와 Personal Access Token을 입력하세요.
+      이 정보는 이 브라우저에만 저장되며(localStorage), 소스코드나 다른 사람 화면에는 남지 않습니다.
+    </div>
+    <label style="font-size:12px;font-weight:600;">저장소 소유자 (owner)</label>
+    <input type="text" id="ghOwnerInput" placeholder="예: mycompany" value="${escapeAttr(c.owner||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
+    <label style="font-size:12px;font-weight:600;">저장소 이름 (repo)</label>
+    <input type="text" id="ghRepoInput" placeholder="예: qa-audit-data" value="${escapeAttr(c.repo||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
+    <label style="font-size:12px;font-weight:600;">Personal Access Token</label>
+    <input type="password" id="ghTokenInput" placeholder="ghp_..." value="${escapeAttr(c.token||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
+    <div class="hint" style="margin-bottom:10px;">
+      토큰 만드는 법: GitHub → Settings → Developer settings → Personal access tokens →
+      Fine-grained tokens → 저장소 선택 → Repository permissions에서 "Issues: Read and write" 부여 후 생성.
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:8px;">
+      <button class="btn danger" id="ghClearBtn">연동 해제</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" id="ghCancelBtn">취소</button>
+        <button class="btn primary" id="ghSaveBtn">저장 및 연결</button>
+      </div>
+    </div>
+  </div></div>`;
+  document.getElementById('ghCancelBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
+  document.getElementById('ghClearBtn').addEventListener('click', ()=>{
+    if(!confirm('이 브라우저의 GitHub 연동 설정을 지우시겠습니까? (GitHub에 저장된 데이터는 그대로 유지됩니다)')) return;
+    clearGithubConfig(); githubIssueCache=null; root.innerHTML='';
+    githubLog('⚙️ GitHub 연동 설정이 필요합니다. 설정 전까지는 데이터가 이 브라우저에만 저장되고 공유되지 않습니다.');
+  });
+  document.getElementById('ghSaveBtn').addEventListener('click', async ()=>{
+    const owner = document.getElementById('ghOwnerInput').value.trim();
+    const repo = document.getElementById('ghRepoInput').value.trim();
+    const token = document.getElementById('ghTokenInput').value.trim();
+    if(!owner || !repo || !token){ showToast('모든 항목을 입력하세요'); return; }
+    setGithubConfig({owner, repo, token});
+    githubIssueCache = null;
+    root.innerHTML = '';
+    githubLog('연결 확인 중...');
+    try{
+      await ghLoadIssueCache();
+      githubLog('✅ GitHub 연동됨: '+owner+'/'+repo+' (모든 직원과 실시간 공유됩니다)');
+      await loadAll();
+      applyRoleUI();
+      showToast('GitHub 데이터를 불러왔습니다');
+    }catch(err){
+      console.error(err);
+      githubLog('⚠️ 연결 실패: '+err.message);
+      showToast('GitHub 연결 실패: '+err.message);
+    }
+  });
+}
+function initGithubStorage(){
+  const box = document.getElementById('githubBox');
+  if(box) box.style.display = 'block';
+  const btn = document.getElementById('githubSettingsBtn');
+  if(btn) btn.addEventListener('click', openGithubSettingsModal);
+  if(githubConfigReady()){
+    const c = getGithubConfig();
+    githubLog('GitHub 연동됨: '+c.owner+'/'+c.repo+' (모든 직원과 실시간 공유됩니다)');
+  } else {
+    githubLog('⚙️ GitHub 연동 설정이 필요합니다. 설정 전까지는 데이터가 이 브라우저에만 저장되고 다른 직원과 공유되지 않습니다.');
+  }
+}
+/** 통합 storage 어댑터 — 아래 loadAll/persistAll은 이 객체만 사용합니다.
+ *  우선순위: GitHub Issues(연동 설정 완료 시, 전 직원 실시간 공유) > localStorage(설정 전 임시, 이 브라우저 전용) */
 const storage = {
   async get(key, shared){
-    if(M365_CONFIG.enabled && graphAccount) return graphStorage.get(key);
-    if(typeof window!=='undefined' && window.storage) return window.storage.get(key, shared);
+    if(githubConfigReady()) return githubStorage.get(key);
     if(localStorageOK()) return localStorageBackend.get(key);
     return null;
   },
   async set(key, value, shared){
-    if(M365_CONFIG.enabled && graphAccount) return graphStorage.set(key, value);
-    if(typeof window!=='undefined' && window.storage) return window.storage.set(key, value, shared);
+    if(githubConfigReady()) return githubStorage.set(key, value);
     if(localStorageOK()) return localStorageBackend.set(key, value);
     throw new Error('no storage backend available');
   }
 };
+
 
 /* ================= Global state ================= */
 let template = defaultTemplate();
@@ -1116,7 +1036,7 @@ function assignSeq(a){
 
 /* ================= Storage (SHARED) ================= */
 function storageBackendAvailable(){
-  return (M365_CONFIG.enabled && !!graphAccount) || (typeof window!=='undefined' && !!window.storage) || localStorageOK();
+  return githubConfigReady() || localStorageOK();
 }
 async function loadAll(){
   if(!storageBackendAvailable()){ return; } // no built-in persistence — use 내보내기/가져오기(JSON) instead
@@ -3215,7 +3135,7 @@ function bindProjectToolbar(){
 }
 async function init(){
   loadSessionLocal();
-  try{ await initM365(); }catch(err){ console.error('M365 init error (non-fatal):', err); }
+  try{ initGithubStorage(); }catch(err){ console.error('GitHub storage init error (non-fatal):', err); }
   await loadAll();
   bindNav();
   bindMetaFields();
