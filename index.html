@@ -753,9 +753,34 @@ function matchField(header){
    ======================================================================= */
 const GITHUB_CFG_KEY = 'qa_github_config_v1'; // 이 브라우저에만 저장되는 연동 설정(owner/repo/token)
 const GITHUB_DATA_LABEL = 'qa-data';
+// owner/repo는 비밀값이 아니라 "어느 저장소를 쓸지"에 대한 정보라서 기본값으로 넣어둬도 안전합니다.
+// 토큰(Token)만은 절대 여기 넣지 마세요 — GitHub Pages는 소스코드가 전 세계에 공개되므로,
+// 토큰을 코드에 넣으면 누구나 그 토큰으로 저장소에 쓰기/수정을 할 수 있게 됩니다.
+const GITHUB_DEFAULT_OWNER = 'jeongjaehong21';
+const GITHUB_DEFAULT_REPO = 'Audit-Quality-assurance';
+// [현장심사원 전용 자동 접속 토큰]
+// 현장심사원은 별도 설정 없이 바로 자체점검을 저장할 수 있어야 하므로, 이 토큰만 예외적으로
+// 코드에 넣어둡니다. 반드시 아래 조건으로 "이 저장소 전용" Fine-grained 토큰을 새로 만들어
+// 여기에 붙여넣어 주세요(마스터/심사원이 쓰는 본인 토큰과는 다른, 별도의 토큰이어야 합니다):
+//   - Repository access: Only select repositories → 이 저장소만 선택
+//   - Repository permissions: Issues = Read and write, 나머지는 전부 No access(기본값 유지)
+// 이렇게 범위를 최소로 제한하면, 혹시 노출되더라도 이 저장소의 Issues(심사 데이터) 외에는
+// 손댈 수 없습니다. 마스터/심사원은 이 토큰과 무관하게 계속 본인 토큰을 입력해서 사용합니다.
+const GITHUB_FIELD_TOKEN = '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';
 
 function getGithubConfig(){
-  try{ const raw = localStorage.getItem(GITHUB_CFG_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+  try{
+    const raw = localStorage.getItem(GITHUB_CFG_KEY);
+    const c = raw ? JSON.parse(raw) : {};
+    let token = c.token || '';
+    // 로그인 전에는 아직 role이 정해지지 않았는데(로그인 여부를 확인하려면 먼저 계정목록을
+    // 불러와야 함), role==='field'로만 제한하면 그 계정목록조차 못 불러오는 문제가 생깁니다.
+    // 그래서 "본인 토큰이 아직 없는 모든 경우"에 이 최소권한 토큰을 공통 대체값으로 씁니다.
+    if(!token && GITHUB_FIELD_TOKEN){
+      token = GITHUB_FIELD_TOKEN;
+    }
+    return { owner: c.owner || GITHUB_DEFAULT_OWNER, repo: c.repo || GITHUB_DEFAULT_REPO, token };
+  }catch(e){ return { owner: GITHUB_DEFAULT_OWNER, repo: GITHUB_DEFAULT_REPO, token: '' }; }
 }
 function setGithubConfig(cfg){ try{ localStorage.setItem(GITHUB_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
 function clearGithubConfig(){ try{ localStorage.removeItem(GITHUB_CFG_KEY); }catch(e){} }
@@ -1602,6 +1627,7 @@ function openLoginModal(){
     const facc = userAccounts.fieldAuditors.find(a=>a.name===id && a.password===pw);
     if(facc){
       role='field'; loggedInName=facc.name; fieldProjectId=facc.projectId; fieldSelectedProjectId=null; authRole='field'; authName=facc.name; authProjectId=facc.projectId; saveSessionLocal(); root.innerHTML=''; applyRoleUI(); showToast(`${facc.name}님(현장심사원)으로 로그인되었습니다`);
+      if(githubConfigReady()) githubLog('GitHub 자동 연동됨 (현장심사원 전용) — 별도 설정 없이 저장됩니다');
     } else {
       document.getElementById('loginError').textContent='이름 또는 비밀번호가 올바르지 않습니다. (계정이 없다면 심사원에게 등록을 요청하세요)';
     }
