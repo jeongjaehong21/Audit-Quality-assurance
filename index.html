@@ -295,6 +295,8 @@
       <button id="roleAuditorBtn">🔒 심사원 모드</button>
       <button id="roleDeptBtn" class="active">👁 수행부서 조회</button>
     </div>
+    <button class="side-btn" id="manualSaveBtn" style="display:none;background:rgba(58,114,86,.25);border:1px solid rgba(58,114,86,.5);color:#eafff2;">💾 지금 저장 (전체 공유)</button>
+    <div id="autoSaveIndicator" style="display:none;font-size:9.5px;color:#c3cad8;text-align:center;margin-top:-4px;margin-bottom:2px;"></div>
     <button class="side-btn" id="helpBtn" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e9dcc2;">📖 사용자 매뉴얼</button>
 
     <div class="nav" id="navAuditor" style="display:none;">
@@ -811,8 +813,28 @@ function githubLog(msg){
     box.style.display = (msg || btnShown) ? 'block' : 'none';
   }
 }
+/** 마스터/심사원에게만 버튼을 보여주고, 본인 토큰이 저장되어 있으면 버튼 텍스트를
+ *  "연동완료"로, 아니면 경고 문구와 함께 "GitHub 연동 설정"으로 표시합니다. */
+function updateGithubButtonState(showButton){
+  const btn = document.getElementById('githubSettingsBtn');
+  if(!btn) return;
+  btn.style.display = showButton ? 'block' : 'none';
+  if(!showButton){
+    githubLog('');
+    return;
+  }
+  const connected = githubVerifiedConnected && !!getGithubPersonalConfig().token;
+  btn.textContent = connected ? '✅ GitHub 연동완료 (설정 변경)' : '🔗 GitHub 연동 설정';
+  btn.classList.toggle('connected', connected);
+  if(connected){
+    githubLog('');
+  } else {
+    githubLog('⚠️ 본인 GitHub 토큰이 필요합니다. "GitHub 연동 설정"에서 입력해 주세요(입력 전까지는 이 브라우저에만 저장됩니다).');
+  }
+}
 
 let githubIssueCache = null; // { [dataKey]: {number, body} }
+let githubVerifiedConnected = false; // 실제로 연결 확인(ghLoadIssueCache 성공)까지 마쳤는지
 
 async function ghApi(path, options){
   const c = getGithubConfig();
@@ -849,6 +871,7 @@ async function ghLoadIssueCache(){
     if(items.length<100) break;
     page++;
   }
+  githubVerifiedConnected = true;
 }
 const githubStorage = {
   async get(key){
@@ -915,8 +938,8 @@ function openGithubSettingsModal(){
   document.getElementById('ghCancelBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
   document.getElementById('ghClearBtn').addEventListener('click', ()=>{
     if(!confirm('이 브라우저의 GitHub 연동 설정을 지우시겠습니까? (GitHub에 저장된 데이터는 그대로 유지됩니다)')) return;
-    clearGithubConfig(); githubIssueCache=null; root.innerHTML='';
-    githubLog('⚙️ GitHub 연동 설정이 필요합니다. 설정 전까지는 데이터가 이 브라우저에만 저장되고 공유되지 않습니다.');
+    clearGithubConfig(); githubIssueCache=null; githubVerifiedConnected=false; root.innerHTML='';
+    updateGithubButtonState(true);
   });
   document.getElementById('ghSaveBtn').addEventListener('click', async ()=>{
     const owner = document.getElementById('ghOwnerInput').value.trim();
@@ -925,18 +948,20 @@ function openGithubSettingsModal(){
     if(!owner || !repo || !token){ showToast('모든 항목을 입력하세요'); return; }
     setGithubConfig({owner, repo, token});
     githubIssueCache = null;
+    githubVerifiedConnected = false;
     root.innerHTML = '';
     githubLog('연결 확인 중...');
     try{
       await ghLoadIssueCache();
-      githubLog('');
       await loadAll();
       applyRoleUI();
       showToast('GitHub 데이터를 불러왔습니다');
     }catch(err){
       console.error(err);
+      githubVerifiedConnected = false;
       githubLog('⚠️ 연결 실패: '+err.message);
       showToast('GitHub 연결 실패: '+err.message);
+      updateGithubButtonState(true);
     }
   });
 }
@@ -1132,6 +1157,20 @@ async function loadAll(){
   }catch(e){ projects=[]; }
   // migrate old project records missing pm/qam
   projects.forEach(p=>{ if(p.pm===undefined) p.pm=''; if(p.qam===undefined) p.qam=''; if(p.code===undefined) p.code=''; if(p.selected===undefined) p.selected=false; if(p.notApplicable===undefined) p.notApplicable=false; });
+}
+/** 프로젝트/계정 등 화면에서 값을 바꿀 때마다 이걸 호출하면, 짧은 지연 후 자동으로
+ *  persistAll()이 실행되어 GitHub에 저장되고 모든 직원과 공유됩니다. 여러 번 연속으로
+ *  호출돼도(예: 타이핑 중) 마지막 호출 기준으로 한 번만 저장합니다(디바운스). */
+let autoSaveTimer = null;
+function scheduleAutoSave(){
+  if(autoSaveTimer) clearTimeout(autoSaveTimer);
+  const indicator = document.getElementById('autoSaveIndicator');
+  if(indicator){ indicator.textContent = '● 저장 대기 중...'; indicator.style.display='inline'; }
+  autoSaveTimer = setTimeout(async ()=>{
+    autoSaveTimer = null;
+    await persistAll();
+    if(indicator){ indicator.textContent = '✓ 저장됨 · 모든 직원과 공유됨'; setTimeout(()=>{ indicator.style.display='none'; }, 2500); }
+  }, 700);
 }
 async function persistAll(){
   if(!storageBackendAvailable()){ showToast('이 환경에는 자동 저장소가 없습니다 — "데이터 내보내기(JSON)"로 백업하세요.'); return; }
@@ -1755,7 +1794,7 @@ async function openEmailPdfFlow(){
     const filename = `${safeProject}_심사결과.pdf`;
     pdf.save(filename);
     const subject = `${a.project||'프로젝트'} 심사결과`;
-    const body = `안녕하세요,\n\n${a.project||''} 프로젝트 심사결과를 첨부합니다.\n\n※ 방금 다운로드된 "${filename}" 파일을 이 메일에 첨부해 주세요.\n(브라우저 보안 정책상 자동 첨부는 지원되지 않아, 다운로드된 파일을 직접 끌어다 놓아주셔야 합니다.)\n\n감사합니다.`;
+    const body = `안녕하세요,\n\n${a.project||''} 프로젝트 심사결과를 안내드립니다.\n\n${filename} 별첨\n\n본 메일은 프로젝트 품질 평가시스템에서 발송되었습니다.\n\n감사합니다.`;
     showToast('PDF가 다운로드되었습니다. 잠시 후 메일 작성 화면이 열립니다.');
     setTimeout(()=>{
       window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -1856,17 +1895,11 @@ function applyRoleUI(){
   document.getElementById('navField').style.display = isField? 'flex':'none';
   document.getElementById('logoutBtn').style.display = authRole? 'block':'none';
   document.getElementById('newAuditBtn').style.display = isAuditorSide? 'block':'none';
+  const manualSaveBtn = document.getElementById('manualSaveBtn');
+  if(manualSaveBtn) manualSaveBtn.style.display = (isAuditorSide || isField) ? 'block' : 'none';
   // GitHub 연동 설정은 본인 토큰을 입력해야 하는 마스터/심사원만 누를 수 있게 하고,
   // 현장심사원/수행부서는 자동 토큰으로 이미 연결되어 있으므로 버튼을 숨깁니다.
-  const ghBtn = document.getElementById('githubSettingsBtn');
-  if(ghBtn) ghBtn.style.display = isAuditorSide ? 'block' : 'none';
-  if(!isAuditorSide){
-    githubLog('');
-  } else if(!getGithubPersonalConfig().token){
-    githubLog('⚠️ 본인 GitHub 토큰이 필요합니다. "GitHub 연동 설정"에서 입력해 주세요(입력 전까지는 이 브라우저에만 저장됩니다).');
-  } else {
-    githubLog('');
-  }
+  updateGithubButtonState(isAuditorSide);
   const banner=document.getElementById('roleBanner');
   banner.className = 'role-banner '+((isAuditorSide||isField)?'auditor':'dept');
   banner.textContent = isMaster? `🔓 마스터 관리자(${loggedInName}) — 모든 기능(삭제 포함)을 사용할 수 있습니다.`
@@ -2748,7 +2781,8 @@ function renderAuditorsPage(){
       if(!v){ showToast('새 비밀번호를 입력하세요'); return; }
       userAccounts.auditors[idx].password = v;
       input.value='';
-      showToast(`${userAccounts.auditors[idx].name}의 비밀번호가 초기화되었습니다. 저장을 눌러야 유지됩니다.`);
+      showToast(`${userAccounts.auditors[idx].name}의 비밀번호가 초기화되었습니다.`);
+      scheduleAutoSave();
     });
   });
   body.querySelectorAll('button[data-deleteacc]').forEach(btn=>{
@@ -2757,6 +2791,7 @@ function renderAuditorsPage(){
       if(!confirm(`"${userAccounts.auditors[idx].name}" 계정을 삭제하시겠습니까?`)) return;
       userAccounts.auditors.splice(idx,1);
       renderAuditorsPage();
+      scheduleAutoSave();
     });
   });
   document.getElementById('addAuditorBtn').onclick = ()=>{
@@ -2767,7 +2802,8 @@ function renderAuditorsPage(){
     userAccounts.auditors.push({name, password:pw});
     document.getElementById('newAuditorName').value=''; document.getElementById('newAuditorPw').value='';
     renderAuditorsPage();
-    showToast(`${name} 계정이 추가되었습니다. 저장을 눌러야 유지됩니다.`);
+    showToast(`${name} 계정이 추가되었습니다.`);
+    scheduleAutoSave();
   };
   document.getElementById('newMasterPwInput').value='';
   document.getElementById('changeMasterPwBtn').onclick = ()=>{
@@ -2775,7 +2811,8 @@ function renderAuditorsPage(){
     if(!v){ showToast('새 비밀번호를 입력하세요'); return; }
     userAccounts.masterPassword = v;
     document.getElementById('newMasterPwInput').value='';
-    showToast('마스터 비밀번호가 변경되었습니다. 저장을 눌러야 유지됩니다.');
+    showToast('마스터 비밀번호가 변경되었습니다.');
+    scheduleAutoSave();
   };
 }
 
@@ -2914,7 +2951,7 @@ function renderProjectsPage(){
     });
   });
   head.querySelectorAll('button[data-hide]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{ projectColumnDefs[+btn.dataset.hide].hidden = true; renderProjectsPage(); });
+    btn.addEventListener('click', ()=>{ projectColumnDefs[+btn.dataset.hide].hidden = true; renderProjectsPage(); scheduleAutoSave(); });
   });
   head.querySelectorAll('button[data-del]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -3031,13 +3068,14 @@ function renderProjectsBody(visibleDefs){
         e.target.value = formatThousands(raw);
         const after = e.target.value.length;
         e.target.selectionStart = e.target.selectionEnd = Math.max(0, pos + (after-before));
+        scheduleAutoSave();
       });
     } else {
-      inp.addEventListener('input', e=>{ projects[+e.target.dataset.idx][e.target.dataset.field] = e.target.value; });
+      inp.addEventListener('input', e=>{ projects[+e.target.dataset.idx][e.target.dataset.field] = e.target.value; scheduleAutoSave(); });
     }
   });
   body.querySelectorAll('input[data-extra]').forEach(inp=>{
-    inp.addEventListener('input', e=>{ const p=projects[+e.target.dataset.idx]; if(!p.extra) p.extra={}; p.extra[e.target.dataset.extra]=e.target.value; });
+    inp.addEventListener('input', e=>{ const p=projects[+e.target.dataset.idx]; if(!p.extra) p.extra={}; p.extra[e.target.dataset.extra]=e.target.value; scheduleAutoSave(); });
   });
   body.querySelectorAll('input[data-field="pm"]').forEach(inp=>{
     inp.addEventListener('change', e=>{ ensureFieldAuditorForPM(projects[+e.target.dataset.idx]); });
@@ -3063,6 +3101,7 @@ function renderProjectsBody(visibleDefs){
       const p = projects[+btn.dataset.toggleNa];
       p.notApplicable = !p.notApplicable;
       renderProjectsPage();
+      scheduleAutoSave();
     });
   });
   body.querySelectorAll('button[data-delproj]').forEach(btn=>{
@@ -3071,6 +3110,7 @@ function renderProjectsBody(visibleDefs){
       if(!confirm(`"${projects[idx].name||'(제목없음)'}" 프로젝트를 목록에서 삭제하시겠습니까? (관련 심사 기록은 유지됩니다)`)) return;
       projects.splice(idx,1);
       renderProjectsPage();
+      scheduleAutoSave();
     });
   });
 }
@@ -3329,6 +3369,11 @@ function bindNav(){
     });
   });
   document.getElementById('helpBtn').addEventListener('click', openHelpModal);
+  document.getElementById('manualSaveBtn').addEventListener('click', async ()=>{
+    if(autoSaveTimer){ clearTimeout(autoSaveTimer); autoSaveTimer=null; }
+    await persistAll();
+    showToast('전체 데이터를 저장했습니다. 모든 직원이 새로고침하면 이 내용을 볼 수 있습니다.');
+  });
   document.getElementById('roleAuditorBtn').addEventListener('click', ()=>{
     if(isAuditorSide()) return;
     if(authRole){ role=authRole; loggedInName=authName; applyRoleUI(); showToast(`${loggedInName}(으)로 다시 전환되었습니다`); }
@@ -3342,6 +3387,7 @@ function bindProjectToolbar(){
   document.getElementById('addProjectBtn').addEventListener('click', ()=>{
     projects.push({id:'proj_'+Date.now()+Math.random().toString(36).slice(2,7), orderNo:'',code:'',name:'신규 프로젝트',pm:'',qam:'',amount:'',start:'',planEnd:'',actualEnd:'',planMM:'',actualMM:'',extra:{},selected:false,notApplicable:false});
     renderProjectsPage();
+    scheduleAutoSave();
   });
   document.getElementById('addColumnBtn').addEventListener('click', ()=>{
     const label = prompt('추가할 항목(컬럼)명을 입력하세요');
@@ -3349,6 +3395,7 @@ function bindProjectToolbar(){
     const key = 'ex_'+Date.now();
     projectColumnDefs.push({key, label, width:120, builtin:false, hidden:false});
     renderProjectsPage();
+    scheduleAutoSave();
   });
   document.getElementById('showHiddenColsBtn').addEventListener('click', ()=>{
     hiddenColsBoxOpen = !hiddenColsBoxOpen;
@@ -3366,6 +3413,7 @@ function bindProjectToolbar(){
     if(!confirm(`선택한 ${selected.length}개 프로젝트를 목록에서 삭제하시겠습니까? (관련 심사 기록은 유지됩니다)`)) return;
     projects = projects.filter(p=>!p.selected);
     renderProjectsPage();
+    scheduleAutoSave();
   });
   document.getElementById('exportDataBtn').addEventListener('click', exportAllData);
   document.getElementById('importDataBtn').addEventListener('click', ()=>{ document.getElementById('importFileInput').click(); });
