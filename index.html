@@ -32,6 +32,8 @@
   .role-switch button.active{background:var(--brass);color:#241a0d;}
 
   .nav{display:flex;flex-direction:column;gap:3px;}
+  .nav-disabled button{opacity:.45;cursor:not-allowed;}
+  .nav-disabled button:hover{background:transparent;}
   .nav button{text-align:left;background:transparent;border:none;color:#c3cad8;padding:8px 10px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;}
   .nav button:hover{background:rgba(255,255,255,.06);}
   .nav button.active{background:rgba(169,124,63,.2);color:#f3e6cf;}
@@ -295,7 +297,7 @@
       <button id="roleAuditorBtn">🔒 심사원 모드</button>
       <button id="roleDeptBtn" class="active">👁 수행부서 조회</button>
     </div>
-    <button class="side-btn" id="manualSaveBtn" style="display:none;background:rgba(58,114,86,.25);border:1px solid rgba(58,114,86,.5);color:#eafff2;">💾 지금 저장 (전체 공유)</button>
+    <button class="side-btn" id="manualSaveBtn" style="display:none;background:rgba(58,114,86,.25);border:1px solid rgba(58,114,86,.5);color:#eafff2;">💾 전체 반영하기</button>
     <div id="autoSaveIndicator" style="display:none;font-size:9.5px;color:#c3cad8;text-align:center;margin-top:-4px;margin-bottom:2px;"></div>
     <button class="side-btn" id="helpBtn" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e9dcc2;">📖 사용자 매뉴얼</button>
 
@@ -420,6 +422,8 @@
           <button class="btn" id="pasteImportBtn">붙여넣기로 가져오기(SharePoint/Excel)</button>
           <button class="btn danger" id="bulkDeleteBtn">선택 삭제</button>
           <span style="flex:1;"></span>
+          <span id="projSaveIndicator" style="font-size:10.5px;color:var(--ink-soft);margin-right:6px;"></span>
+          <button class="btn primary" id="projSaveBtn">💾 저장</button>
           <button class="btn gold" id="exportDataBtn">⬇ 전체 데이터 내보내기(JSON)</button>
           <button class="btn" id="importDataBtn">⬆ 백업 불러오기(JSON)</button>
           <input type="file" id="importFileInput" accept=".json" style="display:none;">
@@ -441,7 +445,7 @@
       <div class="title-row"><div><h1>심사 항목 <span class="accent">관리</span></h1><div class="subtitle">영역·코드·세부항목·산출물(예시)·ISO조항 수정, 항목 추가/순서 변경, 필수 산출물·가림 지정 — 심사원만 수정 가능</div></div></div>
       <div class="card">
         <div class="hint">필수로 표시한 항목은 "새 심사 시작" 시 확인 목록에 표시되며, N/A를 제외한 점수가 3점 이상이면 KPI의 <b>표준화율</b> 항목에 "작성된 산출물"로 자동 산정됩니다. 2점 이하 항목은 자동으로 프로젝트 지적사항이 됩니다. <b>항목가림</b>에 체크하면 데이터는 남지만 실제 평가 화면에는 표시되지 않습니다.</div>
-        <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;"><button class="btn primary" id="addTmplRowBtn">+ 심사 항목 추가</button><span id="tmplSaveIndicator" style="font-size:12px;color:var(--ink-soft);"></span></div>
+        <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;"><button class="btn primary" id="addTmplRowBtn">+ 심사 항목 추가</button><button class="btn" id="tmplSaveBtn">💾 저장</button><span id="tmplSaveIndicator" style="font-size:12px;color:var(--ink-soft);"></span></div>
         <table>
           <thead><tr>
             <th style="width:54px;">순서</th><th style="width:50px;">필수</th><th style="width:60px;">항목가림</th><th style="width:14%;">영역</th><th style="width:64px;">코드</th>
@@ -609,39 +613,39 @@ function zoneLabel(code){ const z=ZONES.find(z=>z.code===code); return z? z.labe
 /* ================= Default checklist template ================= */
 function defaultTemplate(){
   const raw = [
-   {zone:"PL", code:"PL", proc:"문서관리 목록", name:"문서목록관리대장", evid:"산출물 리스트", iso:"7.5 문서화된 정보 — 문서의 작성·개정·식별, 배포·접근, 보관·보존, 폐기 등 문서화된 정보에 대한 관리 요건(7.5.2 작성 및 갱신, 7.5.3 관리)"},
-   {zone:"CR", code:"CR", proc:"계약검토", name:"제안서 및 계약서", evid:"제안서, 제안검토서, 계약서, 계약검토서 등", iso:"8.2 제품 및 서비스 요구사항 — 고객 요구사항의 결정(8.2.2)과 검토(8.2.3), 계약/제안 변경 시 재검토(8.2.4)"},
-   {zone:"PL", code:"PL", proc:"프로젝트계획", name:"계획서(Plan)", evid:"PMP - 범위, 일정, 조직, 인력구성, 품질보증, 의사소통 등", iso:"6.2 품질목표 및 달성 기획, 8.1 운영 기획 및 관리 — 프로젝트 목표·일정·자원에 대한 사전 계획 수립"},
-   {zone:"PL", code:"PL", proc:"프로젝트계획", name:"프로젝트 표준 및 절차(분석/설계/구현)", evid:"프로젝트 표준·절차 수립 여부, 참여자 교육 및 보고서", iso:"8.1 운영 기획 및 관리, 7.5 문서화된 정보 — 수행 표준·절차의 수립 및 문서화"},
-   {zone:"CO", code:"CO", proc:"모니터링&통제", name:"진척 관리", evid:"주간/월간 상태 보고서 - 계획 대비 실적(Gantt 비교) 포함", iso:"9.1 모니터링, 측정, 분석 및 평가 — 일정 및 수행 실적에 대한 정기적 측정·분석"},
-   {zone:"CO", code:"CO", proc:"모니터링&통제", name:"회의록", evid:"프로젝트 정기/수시 회의록, 마일스톤 검토 결과서", iso:"7.5 문서화된 정보 — 의사결정 사항 및 회의 결과에 대한 기록 유지"},
-   {zone:"CO", code:"CO", proc:"모니터링&통제", name:"워크스루(분석/설계/구현 단계)", evid:"검토 회의록, 승인 문서", iso:"8.3.4 설계와 개발의 관리(검토) — 산출물에 대한 체계적 검토 및 검증"},
-   {zone:"RM", code:"RM", proc:"모니터링&통제", name:"리스크관리 계획", evid:"내/외부 이슈 관리방안(원인분석/재발 방지책)", iso:"6.1 위험과 기회를 다루는 조치 — 프로젝트 위험의 사전 식별 및 대응 방안 수립"},
-   {zone:"RM", code:"RM", proc:"모니터링&통제", name:"발생된 리스크(Issue) 관리", evid:"이슈 추적 로그", iso:"6.1 위험과 기회를 다루는 조치 — 발생한 이슈의 추적 관리 및 대응"},
-   {zone:"RM", code:"RM", proc:"모니터링&통제", name:"위험관리보고/의사결정요청", evid:"위험관리보고서/의사결정요청서 - 일정 지연이나 예산 초과 시 대응 내역", iso:"6.1 위험과 기회에 대한 조치 - 이슈 관리 및 대응"},
-   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 정의", evid:"현행시스템 분석, RS, SRS", iso:"8.2.2 요구사항의 결정 — 고객 요구사항(기능/비기능)의 수집 및 정의"},
-   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"현행업무분석", evid:"기능분석, 엔티티 정의, 도메인정의", iso:"8.2 제품 및 서비스 요구사항, 8.3 설계와 개발 — 현행 업무 분석을 통한 요구사항 도출"},
-   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 변경 통제", evid:"변경요청서(CR), 요구사항 변경이력관리", iso:"8.2.4 고객 요구사항의 변경"},
-   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 추적 관리", evid:"요구사항 추적표(RTM)", iso:"8.3.5 설계와 개발 출력 — 요구사항과 설계·구현 산출물 간 추적성(Traceability) 관리"},
-   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 합의 및 승인(워크스루)", evid:"요구사항 검토 회의록, 승인 문서", iso:"8.2.3 요구사항의 검토, 8.3.4 설계와 개발의 관리 — 고객 및 담당자의 검토·승인"},
-   {zone:"DE", code:"DE", proc:"구조설계", name:"설계 기법·표준·절차 수립 / 인터페이스 설계 / 추적관계 수립", evid:"아키텍처 정의서, 시스템구성도, 인터페이스 정의서", iso:"8.3.2 설계와 개발의 기획, 8.3.4/8.3.5 설계와 개발의 관리·출력 — 설계 방법론 수립 및 인터페이스·요구사항 매핑"},
-   {zone:"DE", code:"DE", proc:"기본설계", name:"논리적 모델작성 및 매트릭스", evid:"논리DB구조, 프로그램 사양/화면 설계서 등", iso:"8.3.4/8.3.5 설계와 개발의 관리 및 출력 — 논리 모델 설계 및 검토"},
-   {zone:"DE", code:"DE", proc:"상세설계", name:"구현가능 단위 분할 / 인터페이스·내부 설계 / 사용자 문서 작성", evid:"프로그램 목록, 설계서, 컨버전 설계 등", iso:"8.3.5 설계와 개발 출력, 7.5 문서화된 정보/8.5.1 생산 및 서비스 제공의 관리 — 상세·내부 설계 및 사용자 매뉴얼 작성"},
-   {zone:"DE", code:"DE", proc:"테스트계획 수립", name:"테스트 전략·기법·표준·절차 수립", evid:"테스트 계획서 체크리스트, 테스트 시나리오", iso:"8.1 운영 기획 및 관리, 8.6 제품 및 서비스의 릴리스 — 테스트 범위·일정·방법의 사전 계획 수립"},
-   {zone:"IP", code:"IP", proc:"구현", name:"소프트웨어 단위 구현 / 단위테스트 / 소프트웨어 통합", evid:"프로그램 목록 체크, 소스코드 인스펙션 결과", iso:"8.5 생산 및 서비스 제공, 8.6 제품 및 서비스의 릴리스, 8.3.4 설계와 개발의 관리 — 단위 구현·단위시험·시스템 통합"},
-   {zone:"TE", code:"TE", proc:"테스트계획 수립/교육", name:"통합/시스템/인수테스트(계획)", evid:"테스트 계획서, 계획 교육", iso:"8.6 제품 및 서비스의 릴리스, 7.2 역량 — 테스트 수행 계획 및 교육"},
-   {zone:"TE", code:"TE", proc:"통합테스트/결함관리", name:"통합/시스템/인수테스트(수행)", evid:"테스트 결과서 및 결함관리대장/보고서", iso:"8.6 제품 및 서비스의 릴리스, 8.2.3 요구사항의 검토, 10.2 부적합 및 시정조치 — 시험 수행·검증, 고객 승인, 결함관리"},
-   {zone:"TE", code:"TE", proc:"테스트 결과 리뷰", name:"테스트 결과 리뷰", evid:"테스트 결과(집계) 보고 및 결과 리뷰", iso:"9.1 모니터링, 측정, 분석 및 평가, 8.6 제품 및 서비스의 릴리스 — 시험 결과에 대한 검토·평가"},
-   {zone:"IP", code:"IP", proc:"이행프로세스", name:"프로젝트 설치계획 수립", evid:"이행계획서", iso:"8.5 생산 및 서비스 제공, 8.1 운영 기획 및 관리 — 배포(이행) 계획의 수립"},
-   {zone:"IP", code:"IP", proc:"이행리허설", name:"이행 준비사항 리뷰", evid:"이행계획서, 이행 시나리오, 이행목표시간 달성", iso:"8.5/8.6 생산 및 서비스 제공, 제품 및 서비스의 릴리스 — 이행 전 사전 검증"},
-   {zone:"IP", code:"IP", proc:"데이터 전환", name:"데이터의 적재, 검증, 전환시간 준수", evid:"데이터 전환계획 및 검증", iso:"8.5/8.6 생산 및 서비스 제공, 제품 및 서비스의 릴리스 — 데이터 이전 및 검증"},
-   {zone:"TE", code:"TE", proc:"시스템교육", name:"사용자/운영자 매뉴얼 & 교육", evid:"작성 및 교육 실행 여부", iso:"7.2 역량, 7.3 인식 — 사용자·운영자 대상 교육 실시"},
-   {zone:"ED", code:"ED", proc:"종료보고", name:"종료보고 및 인력 해제", evid:"고객사 종료보고 및 인력 투입해제 등", iso:"9.3 경영검토, 10.3 지속적 개선 — 프로젝트 종료 평가 및 자원 해제"},
-   {zone:"ED", code:"ED", proc:"고객확인", name:"고객확인서", evid:"산출물(계획/분석/설계/소스/고객지급품 등) 확인", iso:"8.6 제품 및 서비스의 릴리스 — 고객의 최종 인수 확인"},
-   {zone:"MA", code:"MA", proc:"사후관리절차", name:"Warranty 기간의 유지보수 계획 수립", evid:"유지보수 계획 및 관리대장", iso:"8.5.5 인도 후 활동, 10.3 지속적 개선 — 하자보수기간 중 유지보수 수행"},
-   {zone:"MO", code:"MO", proc:"고객만족도", name:"최종인수 만족도", evid:"고객 설문조사 또는 인수 조건 충족 점수", iso:"9.1.2 고객만족 — 고객 만족도의 조사 및 분석"},
+   {zone:"PL", code:"PL", proc:"문서관리 목록", name:"문서목록관리대장", evid:"산출물 리스트", iso:"[7.5.3 문서화된 정보의 관리] 품질문서의 유효본 식별, 변경 이력, 배포·접근, 보존 및 폐기 상태를 통제", required:true},
+   {zone:"CR", code:"CR", proc:"계약검토", name:"제안서 및 계약서", evid:"제안서, 제안검토서, 계약서, 계약검토서 등", iso:"[8.2.2 요구사항 결정 / 8.2.3 요구사항 검토 / 8.2.4 요구사항 변경] 고객 요구를 명확히 결정·검토하고 계약 또는 제안 변경 시 관련 문서와 담당자에게 반영", required:true},
+   {zone:"PL", code:"PL", proc:"프로젝트계획", name:"계획서(Plan)", evid:"수행계획서(범위, 일정, 조직, 인력구성, 품질보증, 의사소통 등)", iso:"[8.1 운용 기획 및 관리 / 6.2 품질목표 및 달성 기획] 프로젝트 범위·일정·자원·품질 기준을 계획하고 측정 가능한 목표와 실행방안을 수립", required:true},
+   {zone:"PL", code:"PL", proc:"프로젝트계획", name:"프로젝트 표준 및 절차(분석/설계/구현)", evid:"프로젝트 표준·절차 수립 여부(분석/설계/코딩표준, 명명 규칙, 산출물 작성 기준, 형상관리 절차 등)", iso:"[8.1 운용 기획 및 관리 / 7.5.2 작성 및 갱신 / 7.5.3 문서화된 정보의 관리 / 8.3.2 설계·개발 기획] 프로젝트 수행 표준과 개발 절차를 수립하고 승인·개정·배포 상태를 통제", required:true},
+   {zone:"CO", code:"CO", proc:"모니터링&통제", name:"진척 관리", evid:"주간/월간 상태 보고서 - 계획 대비 실적(Gantt 비교) 포함", iso:"[8.1 운용 기획 및 관리 / 9.1.1 모니터링·측정·분석 및 평가] 계획 대비 일정·공수·성과를 지속적으로 측정하고 편차와 필요한 조치를 관리", required:true},
+   {zone:"CO", code:"CO", proc:"모니터링&통제", name:"회의록", evid:"프로젝트 정기/수시 회의록, 마일스톤 검토 결과서", iso:"[7.4 의사소통 / 7.5.3 문서화된 정보의 관리] 이해관계자별 의사소통 대상·시기·방법·책임을 정하고 회의 및 의사결정 기록을 통제", required:true},
+   {zone:"CO", code:"CO", proc:"모니터링&통제", name:"워크스루(분석/설계/구현 단계)", evid:"검토 회의록, 승인 문서", iso:"[8.3.4 설계 및 개발 관리] 개발 단계별 검토·검증·확인을 수행하고 발견된 문제와 후속조치 결과를 기록", required:true},
+   {zone:"RM", code:"RM", proc:"모니터링&통제", name:"리스크관리 계획", evid:"내/외부 리스크 관리방안(원인분석/재발 방지책)", iso:"[6.1 위험과 기회를 다루는 조치] 프로젝트 위험과 기회를 사전에 식별·평가하고 대응방안 및 조치 효과를 관리", required:true},
+   {zone:"RM", code:"RM", proc:"모니터링&통제", name:"발생된 리스크(Issue) 관리", evid:"이슈 관리 대장(발생된 리스크=Issue)", iso:"[6.1 위험과 기회를 다루는 조치 / 8.7 부적합 출력의 관리] 발생 이슈를 추적하고 부적합을 통제하며 필요 시 원인분석과 재발방지 조치를 수행", required:true},
+   {zone:"RM", code:"RM", proc:"모니터링&통제", name:"위험관리보고/의사결정요청", evid:"위험관리보고서/의사결정요청서 - 일정 지연이나 예산 초과 시 대응 내역", iso:"[6.1 위험과 기회를 다루는 조치 / 9.1.1 모니터링·측정·분석 및 평가] 주요 위험과 일정·예산 편차를 평가·보고하고 필요한 의사결정과 대응조치를 추적", required:true},
+   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 정의", evid:"현행시스템 분석, 요구사항 정의서(RS/SRS)", iso:"[8.2.2 제품 및 서비스 요구사항의 결정 / 8.3.3 설계 및 개발 입력] 고객·사용자·법규 요구사항을 명확히 정의하고 완전하고 모순 없는 설계 입력으로 관리", required:true},
+   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"현행업무분석", evid:"기능분석, 엔티티 정의, 도메인정의", iso:"[8.2.2 제품 및 서비스 요구사항의 결정 / 8.3.3 설계 및 개발 입력] 현행 업무와 시스템을 분석하여 기능·데이터·인터페이스 등 설계 입력사항을 도출", required:true},
+   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 변경 통제", evid:"변경요청서(CR), 요구사항 변경이력관리", iso:"[8.2.4 제품 및 서비스 요구사항의 변경 / 8.3.6 설계 및 개발 변경] 요구사항과 설계 변경의 영향을 검토·승인하고 변경 내용과 조치 결과를 추적 관리", required:true},
+   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 추적 관리", evid:"요구사항 추적표(RTM)", iso:"[8.3.3 설계 및 개발 입력 / 8.3.4 설계 및 개발 관리 / 8.3.5 설계 및 개발 출력] 요구사항과 설계·구현·시험 산출물의 연결 관계를 유지하고 충족 여부를 검증", required:true},
+   {zone:"AN", code:"AN", proc:"요구사항 개발&관리", name:"요구사항 합의 및 승인", evid:"요구사항 검토 회의록, 승인 문서", iso:"[8.2.3 제품 및 서비스 요구사항의 검토] 확정 전 요구사항의 적정성·실현 가능성·상이사항을 검토하고 고객 합의 및 승인 근거를 보유", required:true},
+   {zone:"DE", code:"DE", proc:"구조설계", name:"설계 기법·표준·절차 수립 / 인터페이스 설계 / 추적관계 수립", evid:"아키텍처 정의서, 시스템구성도, 인터페이스 정의서", iso:"[8.3.2 설계 및 개발 기획 / 8.3.3 설계 및 개발 입력 / 8.3.4 설계 및 개발 관리 / 8.3.5 설계 및 개발 출력] 설계 방법·인터페이스·구조를 정의하고 입력 요구 충족 여부와 출력 결과를 관리", required:true},
+   {zone:"DE", code:"DE", proc:"기본설계", name:"논리적 모델작성 및 매트릭스", evid:"프로그램 사양/화면 설계서, 논리DB구조 등", iso:"[8.3.5 설계 및 개발 출력 / 8.3.4 설계 및 개발 관리] 요구사항을 구현 가능한 논리모델·화면·프로그램·데이터 구조로 구체화하고 검토·검증", required:true},
+   {zone:"DE", code:"DE", proc:"상세설계", name:"구현가능 단위 분할 / 인터페이스·내부 설계 / 사용자 문서 작성", evid:"프로그램 목록, 설계서, 컨버전 설계 등", iso:"[8.3.4 설계 및 개발 관리] [8.3.5 설계 및 개발 출력] 구현 가능한 단위로 설계하고 인터페이스·내부 구조 및 관련 문서를 정의·관리", required:false},
+   {zone:"DE", code:"DE", proc:"테스트계획 수립", name:"테스트 전략·기법·표준·절차 수립", evid:"테스트 계획서 체크리스트, 테스트 시나리오", iso:"[8.3.2 설계 및 개발 기획 / 8.3.4 설계 및 개발 관리] 시험 범위·방법·책임·자원·합격기준을 계획하고 검증 및 확인 활동을 체계적으로 관리", required:true},
+   {zone:"IP", code:"IP", proc:"구현", name:"소프트웨어 단위 구현 / 단위테스트", evid:"프로그램 목록 체크, 소스코드 인스펙션 결과", iso:"[8.5.1 생산 및 서비스 제공의 관리 / 8.3.4 설계 및 개발 관리] 정해진 표준과 조건에 따라 소프트웨어를 구현하고 단위시험·코드검토 결과를 관리", required:false},
+   {zone:"TE", code:"TE", proc:"테스트계획 수립/교육", name:"통합/시스템/인수테스트(계획)", evid:"테스트 계획서, 계획 교육", iso:"[8.3.2 설계 및 개발 기획 / 8.3.4 설계 및 개발 관리] 통합·시스템·인수시험의 방법과 합격기준을 수립", required:false},
+   {zone:"TE", code:"TE", proc:"통합테스트/결함관리", name:"통합/시스템/인수테스트(수행)", evid:"테스트 결과서 및 결함관리대장/보고서", iso:"[8.3.4 설계 및 개발 관리 / 8.6 제품 및 서비스의 불출 / 8.7 부적합 출력의 관리] 시험 결과를 검증하고 결함을 식별·처리·재검증하며 승인된 결과만 릴리스", required:true},
+   {zone:"TE", code:"TE", proc:"테스트 결과 리뷰", name:"테스트 결과 리뷰", evid:"테스트 결과(집계) 보고 및 결과 리뷰", iso:"[8.3.4 설계 및 개발 관리 / 9.1.1 모니터링·측정·분석 및 평가 / 8.6 제품 및 서비스의 불출] 시험 결과와 결함 현황을 분석·검토하고 합격기준 충족 및 릴리스 승인 여부를 확인", required:true},
+   {zone:"TE", code:"TE", proc:"시스템교육", name:"사용자/운영자 매뉴얼 & 교육", evid:"작성 및 교육 실행 여부", iso:"[7.2 역량] [7.3 인식] [7.5 문서화된 정보] 사용자·운영자 매뉴얼을 적절히 작성·관리하고 교육을 실시하여 시스템 사용 및 운영 능력을 확보", required:true},
+   {zone:"IN", code:"IN", proc:"이행프로세스", name:"프로젝트 설치계획 수립", evid:"이행계획서", iso:"[8.1 운용 기획 및 관리 / 8.5.1 생산 및 서비스 제공의 관리] 시스템 설치·배포의 일정·절차·책임·자원과 통제조건을 사전에 계획", required:false},
+   {zone:"IN", code:"IN", proc:"이행리허설", name:"이행 준비사항 리뷰", evid:"이행계획서, 이행 시나리오", iso:"[8.5.1 생산 및 서비스 제공의 관리 / 8.6 제품 및 서비스의 불출] 실제 이행 전 준비사항과 시나리오를 점검하고 적용 및 릴리스 조건 충족 여부를 확인", required:false},
+   {zone:"IN", code:"IN", proc:"데이터 전환", name:"데이터의 적재, 검증, 전환시간 준수", evid:"데이터 전환계획 및 검증", iso:"[8.5.1 생산 및 서비스 제공의 관리] [8.6 제품 및 서비스의 릴리스] 데이터 전환 계획에 따라 데이터를 이관하고 정합성 검증 및 전환 작업 완료 여부를 관리", required:false},
+   {zone:"ED", code:"ED", proc:"종료보고", name:"종료보고 및 인력 해제", evid:"고객사 종료보고 및 인력 투입해제 등", iso:"[8.6 제품 및 서비스의 불출 / 7.5.3 문서화된 정보의 관리] 프로젝트 완료 조건과 최종 승인 여부를 확인하고 종료·인력 해제 관련 기록을 내부 절차에 따라 관리", required:false},
+   {zone:"ED", code:"ED", proc:"고객확인", name:"고객확인서", evid:"산출물(계획/분석/설계/소스/고객지급품 등) 확인", iso:"[8.6 제품 및 서비스의 불출 / 8.5.3 고객 또는 외부 제공자의 재산] 고객 최종 인수와 산출물 인계 승인을 확인하고 고객 지급품의 상태 및 반환 결과를 관리", required:true},
+   {zone:"MA", code:"MA", proc:"사후관리절차", name:"Warranty 기간의 유지보수 계획 수립", evid:"유지보수 계획 및 관리대장", iso:"[8.5.5 인도 후 활동 / 8.5.1 생산 및 서비스 제공의 관리] 보증기간의 유지보수 범위·책임·처리기준을 정하고 인도 후 서비스 활동을 통제", required:true},
+   {zone:"MO", code:"MO", proc:"고객만족도", name:"최종인수 만족도", evid:"고객 설문조사 또는 인수 조건 충족 점수", iso:"[9.1.2 고객 만족] 고객이 품질과 요구사항 충족을 어떻게 인식하는지 조사·모니터링하고 결과를 분석하여 개선에 활용", required:true},
   ];
-  return raw.map((r,i)=>({id:'c'+String(i+1).padStart(2,'0'), required:false, ...r}));
+  return raw.map((r,i)=>({id:'c'+String(i+1).padStart(2,'0'), ...r}));
 }
 
 /* ================= KPI item definitions ================= */
@@ -914,13 +918,13 @@ function openGithubSettingsModal(){
   root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:480px;">
     <h3 style="margin-top:0;">🔗 GitHub 연동 설정</h3>
     <div class="hint" style="margin-bottom:10px;">
-      데이터를 저장·공유할 GitHub 저장소 정보와 Personal Access Token을 입력하세요.
-      이 정보는 이 브라우저에만 저장되며(localStorage), 소스코드나 다른 사람 화면에는 남지 않습니다.
+      아래 저장소는 이 앱에 미리 설정되어 있어 수정할 필요가 없습니다. <b>본인 Personal Access Token만 입력</b>하시면 됩니다.
+      토큰은 이 브라우저에만 저장되며(localStorage), 소스코드나 다른 사람 화면에는 남지 않습니다.
     </div>
-    <label style="font-size:12px;font-weight:600;">저장소 소유자 (owner)</label>
-    <input type="text" id="ghOwnerInput" placeholder="예: mycompany" value="${escapeAttr(c.owner||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
-    <label style="font-size:12px;font-weight:600;">저장소 이름 (repo)</label>
-    <input type="text" id="ghRepoInput" placeholder="예: qa-audit-data" value="${escapeAttr(c.repo||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
+    <label style="font-size:12px;font-weight:600;color:var(--ink-soft);">저장소 소유자 (owner) — 고정값</label>
+    <input type="text" id="ghOwnerInput" value="${escapeAttr(c.owner||'')}" readonly disabled style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;background:#f4f4f2;color:var(--ink-soft);">
+    <label style="font-size:12px;font-weight:600;color:var(--ink-soft);">저장소 이름 (repo) — 고정값</label>
+    <input type="text" id="ghRepoInput" value="${escapeAttr(c.repo||'')}" readonly disabled style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;background:#f4f4f2;color:var(--ink-soft);">
     <label style="font-size:12px;font-weight:600;">Personal Access Token</label>
     <input type="password" id="ghTokenInput" placeholder="ghp_..." value="${escapeAttr(c.token||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
     <div class="hint" style="margin-bottom:10px;">
@@ -1157,6 +1161,9 @@ async function loadAll(){
   }catch(e){ projects=[]; }
   // migrate old project records missing pm/qam
   projects.forEach(p=>{ if(p.pm===undefined) p.pm=''; if(p.qam===undefined) p.qam=''; if(p.code===undefined) p.code=''; if(p.selected===undefined) p.selected=false; if(p.notApplicable===undefined) p.notApplicable=false; });
+  // 프로젝트마다 PM 이름으로 현장심사원 계정이 반드시 있도록 매번 로드 후 확인합니다
+  // (외부에서 데이터가 직접 편집됐거나 예전 데이터라 자동등록이 누락된 경우까지 보완).
+  if(syncFieldAuditorsForAllPMs()) scheduleAutoSave();
 }
 /** 프로젝트/계정 등 화면에서 값을 바꿀 때마다 이걸 호출하면, 짧은 지연 후 자동으로
  *  persistAll()이 실행되어 GitHub에 저장되고 모든 직원과 공유됩니다. 여러 번 연속으로
@@ -1181,6 +1188,25 @@ async function persistAll(){
   try{ await storage.set('user_accounts_v1', JSON.stringify(Object.assign({}, userAccounts, {fieldAssignments, fieldExclusions})), true); }catch(e){console.error(e);}
 }
 function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+/** 사이드바 메뉴처럼 특정 버튼 옆에 붙여서 짧게 안내 문구를 보여줍니다(화면 하단 토스트 대신). */
+function showInlineMenuNotice(anchorEl, msg){
+  const old = document.getElementById('navInlineNotice');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'navInlineNotice';
+  el.textContent = msg;
+  el.style.cssText = 'position:fixed;background:#242b38;color:#f2f4f8;font-size:11.5px;line-height:1.4;padding:7px 11px;border-radius:5px;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:9999;max-width:230px;pointer-events:none;';
+  document.body.appendChild(el);
+  const rect = anchorEl.getBoundingClientRect();
+  let left = rect.right + 8;
+  let top = rect.top;
+  const elW = el.offsetWidth, elH = el.offsetHeight;
+  if(left + elW > window.innerWidth - 8) left = Math.max(8, rect.left - elW - 8);
+  if(top + elH > window.innerHeight - 8) top = window.innerHeight - elH - 8;
+  el.style.left = left+'px';
+  el.style.top = top+'px';
+  setTimeout(()=>{ if(el.parentNode) el.remove(); }, 2600);
+}
 
 /* ================= Export / Import (manual backup — works anywhere, incl. outside Claude) ================= */
 function exportAllData(){
@@ -1550,6 +1576,15 @@ const HELP_CONTENT = {
       { h: "마스터·심사원: 본인 토큰 입력 필요", p: "로그인 후 좌측 하단 \"GitHub 연동 설정\"에서 본인 Personal Access Token을 한 번 입력해야 합니다. 입력 전까지는 데이터가 이 브라우저에만 저장되고 다른 직원과 공유되지 않는다는 경고가 뜹니다." },
       { h: "현장심사원·수행부서: 설정 불필요", p: "별도 입력 없이 자동으로 연결되어 바로 열람·저장할 수 있습니다(설정 버튼 자체가 보이지 않습니다)." },
     ] },
+    { title: "저장 방식 (자동저장 · 수동저장)", items: [
+      { h: "입력하면 자동으로 저장됨", p: "체크리스트 점수·평가내역, KPI 입력값, 프로젝트 정보, 계정 관리 등 대부분의 항목은 입력을 멈추면 약 0.7초 뒤 자동으로 GitHub에 저장됩니다. 좌측 사이드바에 \"● 저장 대기 중...\" → \"✓ 저장됨 · 모든 직원과 공유됨\"이 순서대로 표시됩니다." },
+      { h: "💾 전체 반영하기 (사이드바)", p: "혹시 모를 상황에 대비해 사이드바에 수동 저장 버튼도 있습니다. 눌러두면 그 즉시 모든 데이터를 GitHub에 저장합니다(마스터·심사원·현장심사원에게만 보이며, 열람 전용인 수행부서에는 표시되지 않습니다)." },
+      { h: "페이지별 💾 저장 버튼", p: "프로젝트 목록, 심사 항목 관리 화면 상단에도 그 페이지 전용 저장 버튼이 있습니다. 자동저장을 기다리지 않고 수정 직후 바로 확실하게 저장하고 싶을 때 누르면 됩니다." },
+      { h: "다른 사람 화면은 새로고침해야 반영됨", p: "내가 저장한 내용이 GitHub에는 즉시 반영되지만, 이미 화면을 열어둔 다른 직원에게 자동으로 나타나지는 않습니다. 최신 내용을 보려면 그 직원이 새로고침을 해야 합니다." },
+    ] },
+    { title: "GitHub 연동 설정 화면의 저장소 정보", items: [
+      { h: "저장소 소유자/이름은 고정값", p: "\"GitHub 연동 설정\" 창의 저장소 소유자(owner)·저장소 이름(repo)은 이 앱에 미리 설정되어 있어 수정할 수 없습니다(회색으로 표시). 데이터가 어디에 저장되는지 확인하는 용도로만 보시고, 실제로 입력해야 하는 것은 본인 Personal Access Token 하나뿐입니다." },
+    ] },
   ] },
   master: { label: "마스터 관리자", sections: [
     { title: "GitHub 연동 설정 (최초 로그인 시 필수)", items: [
@@ -1596,7 +1631,9 @@ const HELP_CONTENT = {
       { h: "완료 심사 삭제", p: "본인이 작성한 심사는 필요 시 \"이 심사 삭제\" 버튼으로 삭제할 수 있으며(완료된 것은 마스터만), 삭제하면 프로젝트 현황의 회차 수도 즉시 갱신됩니다." },
     ] },
     { title: "심사결과 PDF로 이메일 보내기", items: [
-      { h: "📧 PDF로 이메일 보내기 버튼", p: "심사 화면 상단 버튼을 누르면 Ⅰ~Ⅳ 전체 내용(체크리스트 전체 항목·KPI·종합평가·지적사항)이 담긴 PDF가 자동 생성·다운로드되고, 곧이어 제목이 \"프로젝트명 심사결과\"로 채워진 메일 작성 화면이 열립니다." },
+      { h: "📧 PDF로 이메일 보내기 버튼", p: "심사 화면 상단 버튼을 누르면 Ⅰ~Ⅳ 전체 내용(체크리스트 전체 항목·KPI·종합평가·지적사항)이 담긴 PDF가 \"프로젝트명_품질심사결과.pdf\" 파일명으로 자동 생성·다운로드됩니다." },
+      { h: "지적사항에 ISO 9001 조항 표시", p: "PDF의 Ⅳ. 지적사항 표에는 어떤 항목이 왜 지적됐는지 근거를 알 수 있도록, 해당 체크리스트 항목의 ISO 9001 조항 번호가 함께 표시됩니다." },
+      { h: "메일 제목·본문 자동 작성", p: "제목은 \"프로젝트명_품질심사결과\"로, 본문은 \"품질파트에서 (프로젝트명) 프로젝트 품질 심사 결과를 알려드립니다\"로 시작해 회차·평가자·평가일자·최종 종합점수(등급)까지 자동으로 채워집니다." },
       { h: "첨부는 직접 해야 함", p: "브라우저 보안 정책상 파일을 메일에 자동으로 첨부할 수는 없습니다. 방금 다운로드된 PDF 파일을 열려 있는 메일 창에 끌어다 놓아 첨부한 뒤 발송하면 됩니다." },
     ] },
     { title: "내 계정", items: [
@@ -1631,6 +1668,7 @@ const HELP_CONTENT = {
     { title: "역할 정의", items: [
       { h: "실무 집행 부서 (개발팀 · PL, 피심사 조직)", p: "계약된 요구사항에 맞춰 실제로 시스템을 설계·구현하고 인프라를 구축하는 프로젝트 실무 부서(피심사 조직)입니다. 이 화면에서는 심사원·현장심사원이 평가한 품질심사 결과를 실시간으로 열람하며 확인할 수 있습니다." },
       { h: "GitHub 연동: 설정 불필요", p: "로그인 자체가 필요 없는 것처럼, GitHub 연동 설정도 따로 할 필요가 없습니다. 자동으로 연결되어 최신 데이터를 바로 열람할 수 있습니다." },
+      { h: "심사원 전용 메뉴는 회색으로 표시", p: "좌측에 \"프로젝트 목록\", \"심사 항목 관리\" 등 심사원 전용 메뉴가 어떤 기능인지 미리보기 삼아 함께 보이지만, 클릭하면 \"심사원만 작성/열람 할 수 있습니다\"라는 안내만 뜨고 실제로 열리지는 않습니다. 심사원으로 로그인해야 사용할 수 있습니다." },
     ] },
     { title: "접속 & 검색", items: [
       { h: "별도 계정 불필요", p: "화면을 열면 기본적으로 \"수행부서 조회\" 모드로 시작되며, 로그인 없이 바로 이용할 수 있습니다." },
@@ -1695,12 +1733,13 @@ function buildAuditReportHTML(a){
     return `<tr>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;">${escapeHtml(zoneLabel(f.item.zone)||'')}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:10px;">${escapeHtml(f.item.name)}</td>
+      <td style="padding:5px 6px;border:1px solid #ddd;font-size:9px;color:#555;">${escapeHtml(f.item.iso||'-')}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9px;color:#555;">${escapeHtml(remarkTxt)}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">회차 ${f.flaggedRound}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">${f.avgLatest!==null? f.avgLatest.toFixed(1)+'점 (회차 '+f.maxRound+')' : '-'}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;font-weight:bold;color:${f.resolved?'#2e6b49':'#a5433a'};">${f.resolved?'시정완료':'미조치'}</td>
     </tr>`;
-  }).join('') : `<tr><td colspan="6" style="padding:10px;border:1px solid #ddd;text-align:center;color:#777;font-size:10px;">지적사항 없음</td></tr>`;
+  }).join('') : `<tr><td colspan="7" style="padding:10px;border:1px solid #ddd;text-align:center;color:#777;font-size:10px;">지적사항 없음</td></tr>`;
 
   return `
     <div style="border-bottom:3px solid #28344a;padding-bottom:14px;margin-bottom:18px;">
@@ -1711,7 +1750,7 @@ function buildAuditReportHTML(a){
       <tr><td style="padding:3px 8px;color:#5a6472;width:110px;">프로젝트</td><td style="padding:3px 8px;font-weight:600;">${escapeHtml(a.project||'-')}</td>
           <td style="padding:3px 8px;color:#5a6472;width:110px;">수주번호</td><td style="padding:3px 8px;font-weight:600;">${escapeHtml(a.orderNo||'-')}</td></tr>
       <tr><td style="padding:3px 8px;color:#5a6472;">회차 / 유형</td><td style="padding:3px 8px;font-weight:600;">${a.round||1}차 · ${escapeHtml(a.type||'-')}</td>
-          <td style="padding:3px 8px;color:#5a6472;">평가자</td><td style="padding:3px 8px;font-weight:600;">${escapeHtml(a.auditor||'-')}</td></tr>
+          <td style="padding:3px 8px;color:#5a6472;">평가부서</td><td style="padding:3px 8px;font-weight:600;">품질파트(QA)</td></tr>
       <tr><td style="padding:3px 8px;color:#5a6472;">평가일자</td><td style="padding:3px 8px;font-weight:600;">${escapeHtml(a.date||'-')}</td>
           <td style="padding:3px 8px;color:#5a6472;">최종 종합점수</td><td style="padding:3px 8px;font-weight:700;color:#28344a;">${summary.finalScore.toFixed(1)}점 (${summary.finalBand? summary.finalBand.g : '-'})</td></tr>
     </table>
@@ -1745,7 +1784,7 @@ function buildAuditReportHTML(a){
 
     <div style="font-size:13px;font-weight:700;color:#28344a;margin-bottom:8px;border-left:4px solid #a97c3f;padding-left:8px;">Ⅳ. 지적사항</div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
-      <tr style="background:#28344a;color:#fff;"><th style="padding:5px 6px;font-size:9.5px;">영역</th><th style="padding:5px 6px;font-size:9.5px;">세부항목</th><th style="padding:5px 6px;font-size:9.5px;">평가내역</th><th style="padding:5px 6px;font-size:9.5px;">최초지적</th><th style="padding:5px 6px;font-size:9.5px;">최근 평균점수</th><th style="padding:5px 6px;font-size:9.5px;">상태</th></tr>
+      <tr style="background:#28344a;color:#fff;"><th style="padding:5px 6px;font-size:9.5px;">영역</th><th style="padding:5px 6px;font-size:9.5px;">세부항목</th><th style="padding:5px 6px;font-size:9.5px;">ISO 9001 조항</th><th style="padding:5px 6px;font-size:9.5px;">평가내역</th><th style="padding:5px 6px;font-size:9.5px;">최초지적</th><th style="padding:5px 6px;font-size:9.5px;">최근 평균점수</th><th style="padding:5px 6px;font-size:9.5px;">상태</th></tr>
       ${findingRows}
     </table>
     <div style="margin-top:8px;font-size:9px;color:#999;">본 보고서는 품질심사 콘솔에서 자동 생성되었습니다.</div>
@@ -1791,10 +1830,11 @@ async function openEmailPdfFlow(){
   try{
     const pdf = await generateAuditPDF(a);
     const safeProject = (a.project||'프로젝트').replace(/[\\/:*?"<>|]/g,'');
-    const filename = `${safeProject}_심사결과.pdf`;
+    const filename = `${safeProject}_품질심사결과.pdf`;
     pdf.save(filename);
-    const subject = `${a.project||'프로젝트'} 심사결과`;
-    const body = `안녕하세요,\n\n${a.project||''} 프로젝트 심사결과를 안내드립니다.\n\n${filename} 별첨\n\n본 메일은 프로젝트 품질 평가시스템에서 발송되었습니다.\n\n감사합니다.`;
+    const summary = computeAuditSummary(a);
+    const subject = `${safeProject}_품질심사결과`;
+    const body = `품질파트에서 ${a.project||'해당'} 프로젝트 품질 심사 결과를 알려드립니다.\n\n- 회차: ${a.round||1}차 (${a.type||'-'})\n- 평가부서: 품질파트(QA)\n- 평가일자: ${a.date||'-'}\n- 최종 종합점수: ${summary.finalScore.toFixed(1)}점 (${summary.finalBand? summary.finalBand.g : '-'}등급)\n\n세부 내용(체크리스트·KPI·종합평가·지적사항)은 첨부된 "${filename}" 파일을 참고해 주시기 바랍니다.\n\n본 메일은 프로젝트 품질 평가시스템에서 발송되었습니다.\n\n감사합니다.`;
     showToast('PDF가 다운로드되었습니다. 잠시 후 메일 작성 화면이 열립니다.');
     setTimeout(()=>{
       window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -1886,12 +1926,17 @@ function applyRoleUI(){
   const isAuditorSide = role==='auditor' || role==='master';
   const isMaster = role==='master';
   const isField = role==='field';
+  const isDept = role==='dept';
   document.getElementById('roleAuditorBtn').classList.toggle('active', isAuditorSide);
   document.getElementById('roleDeptBtn').classList.toggle('active', role==='dept');
   document.getElementById('roleAuditorBtn').textContent = isAuditorSide ? `🔓 ${loggedInName}${isMaster?' (마스터)':''}` : (authRole && authRole!=='field'? `🔓 ${authName}(으)로 전환` : '🔒 심사원 로그인');
   document.getElementById('roleSwitchBox').style.display = isField? 'none':'flex';
-  document.getElementById('navAuditor').style.display = isAuditorSide? 'flex':'none';
-  document.getElementById('navMasterOnly').style.display = isMaster? 'flex':'none';
+  const navAuditorEl = document.getElementById('navAuditor');
+  const navMasterOnlyEl = document.getElementById('navMasterOnly');
+  navAuditorEl.style.display = (isAuditorSide || isDept)? 'flex':'none';
+  navMasterOnlyEl.style.display = (isMaster || isDept)? 'flex':'none';
+  navAuditorEl.classList.toggle('nav-disabled', isDept);
+  navMasterOnlyEl.classList.toggle('nav-disabled', isDept);
   document.getElementById('navField').style.display = isField? 'flex':'none';
   document.getElementById('logoutBtn').style.display = authRole? 'block':'none';
   document.getElementById('newAuditBtn').style.display = isAuditorSide? 'block':'none';
@@ -2267,6 +2312,7 @@ function renderChecklistTab(a, readOnly){
         renderKpiTab(a, readOnly);
         renderFinalTab(a);
         renderFindingsTab(a);
+        scheduleAutoSave();
       });
     });
   }
@@ -2275,6 +2321,7 @@ function renderChecklistTab(a, readOnly){
       ta.addEventListener('input', e=>{
         a.scores[e.target.dataset.id].remark = e.target.value;
         syncRemarkRequired(container, e.target.dataset.id, a);
+        scheduleAutoSave();
       });
     });
   }
@@ -2346,6 +2393,7 @@ function renderKpiTab(a, readOnly){
       inp.addEventListener('input', e=>{
         a.kpi[i][f]=e.target.value;
         recalcKpiRow(a,i); recalcKpiTotals(a); renderFinalTab(a);
+        scheduleAutoSave();
       });
     }
   });
@@ -2356,6 +2404,7 @@ function renderKpiTab(a, readOnly){
       inp.addEventListener('input', e=>{
         a.kpi[i].weight = e.target.value===""?0:parseFloat(e.target.value);
         recalcKpiRow(a,i); recalcKpiTotals(a); renderFinalTab(a);
+        scheduleAutoSave();
       });
     }
   });
@@ -2533,7 +2582,7 @@ function renderFindingsTab(a){
     const firstFlag = f.flaggedScores.find(s=>s.round===f.flaggedRound) || f.flaggedScores[0];
     const hideAuditor = role==='dept';
     const mainRemark = f.latestRemark || (firstFlag&&firstFlag.remark) || '(평가내역 미입력)';
-    const scoreAttribution = firstFlag ? (firstFlag.score+'점'+(hideAuditor?'':' ('+firstFlag.auditor+')')) : '-';
+    const scoreAttribution = firstFlag ? (firstFlag.score+'점'+(hideAuditor?' (품질파트(QA))':' ('+firstFlag.auditor+')')) : '-';
     tr.innerHTML = `<td><span class="zone-badge">${zoneLabel(f.item.zone)}</span></td>
       <td><b>${f.item.name}</b></td>
       <td class="finding-remark">${escapeHtml(hideAuditor? stripAuditorAttribution(mainRemark) : mainRemark)}</td>
@@ -3261,7 +3310,7 @@ function bindMetaFields(){
   const map={f_project:'project', f_pm:'pm', f_qam:'qam', f_date:'date', f_orderno:'orderNo'};
   Object.keys(map).forEach(id=>{
     ['input','change'].forEach(evt=>{
-      document.getElementById(id).addEventListener(evt, e=>{ const a=getCurrent(); if(a && canEditAudit(a) && !e.target.readOnly) a[map[id]]=e.target.value; });
+      document.getElementById(id).addEventListener(evt, e=>{ const a=getCurrent(); if(a && canEditAudit(a) && !e.target.readOnly){ a[map[id]]=e.target.value; scheduleAutoSave(); } });
     });
   });
   const dateMap={d_start:'start', d_planEnd:'planEnd', d_actualEnd:'actualEnd'};
@@ -3275,6 +3324,7 @@ function bindMetaFields(){
       if(i1el) i1el.value = a.kpi[0].input1;
       if(i2el) i2el.value = a.kpi[0].input2;
       recalcKpiRow(a,0); recalcKpiTotals(a); renderFinalTab(a);
+      scheduleAutoSave();
     });
   });
 }
@@ -3361,7 +3411,12 @@ async function deleteCurrent(){
 
 /* ================= Init ================= */
 function bindNav(){
-  document.querySelectorAll('#navAuditor button, #navMasterOnly button').forEach(b=>{ b.addEventListener('click', ()=> showPage(b.dataset.page)); });
+  document.querySelectorAll('#navAuditor button, #navMasterOnly button').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      if(role==='dept'){ showInlineMenuNotice(b, '심사원만 작성/열람 할 수 있습니다'); return; }
+      showPage(b.dataset.page);
+    });
+  });
   document.querySelectorAll('#navField button').forEach(b=>{
     b.addEventListener('click', ()=>{
       if(b.dataset.fieldmode==='own'){ deptProjectKey=null; deptSelfCheckId=null; fieldSelectedProjectId=null; }
@@ -3373,6 +3428,23 @@ function bindNav(){
     if(autoSaveTimer){ clearTimeout(autoSaveTimer); autoSaveTimer=null; }
     await persistAll();
     showToast('전체 데이터를 저장했습니다. 모든 직원이 새로고침하면 이 내용을 볼 수 있습니다.');
+  });
+  document.getElementById('projSaveBtn').addEventListener('click', async ()=>{
+    if(autoSaveTimer){ clearTimeout(autoSaveTimer); autoSaveTimer=null; }
+    const ind = document.getElementById('projSaveIndicator');
+    if(ind) ind.textContent = '저장 중...';
+    await persistAll();
+    if(ind){ ind.textContent = '✓ 저장됨 · 모든 직원과 공유됨'; setTimeout(()=>{ ind.textContent=''; }, 2500); }
+    showToast('프로젝트 목록을 저장했습니다.');
+  });
+  document.getElementById('tmplSaveBtn').addEventListener('click', async ()=>{
+    if(autoSaveTimer){ clearTimeout(autoSaveTimer); autoSaveTimer=null; }
+    if(typeof _tmplSaveTimer !== 'undefined'){ clearTimeout(_tmplSaveTimer); }
+    const ind = document.getElementById('tmplSaveIndicator');
+    if(ind){ ind.textContent = '저장 중...'; ind.style.color = 'var(--ink-soft)'; }
+    await persistAll();
+    if(ind){ ind.textContent = '✓ 모든 심사원 화면에 저장됨'; ind.style.color = 'var(--ok)'; }
+    showToast('심사 항목을 저장했습니다.');
   });
   document.getElementById('roleAuditorBtn').addEventListener('click', ()=>{
     if(isAuditorSide()) return;
