@@ -34,6 +34,9 @@
   .nav{display:flex;flex-direction:column;gap:3px;}
   .nav-disabled button{opacity:.45;cursor:not-allowed;}
   .nav-disabled button:hover{background:transparent;}
+  .nav-disabled button.nav-viewable{opacity:1;cursor:pointer;}
+  .nav-disabled button.nav-viewable:hover{background:rgba(255,255,255,.08);}
+  .nav-disabled button.nav-viewable::after{content:" (열람)"; font-size:9px; opacity:.75;}
   .nav button{text-align:left;background:transparent;border:none;color:#c3cad8;padding:8px 10px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;}
   .nav button:hover{background:rgba(255,255,255,.06);}
   .nav button.active{background:rgba(169,124,63,.2);color:#f3e6cf;}
@@ -89,6 +92,13 @@
   .field input:focus,.field select:focus,textarea:focus{outline:none;border-color:var(--brass);background:#fff;}
   .field.auto input{color:var(--ink-soft);background:#f1efe8;}
   input:disabled,select:disabled,textarea:disabled{background:#f1efe8 !important;color:#8994a8 !important;cursor:not-allowed;}
+  /* 수행부서 조회 / 현장심사원의 프로젝트 목록·심사 항목 관리 "열람 전용" 화면에서는
+     내용이 흐릿하게 보이지 않고 또렷하게 보이도록 별도 스타일을 적용합니다. */
+  input.ro-field:disabled,select.ro-field:disabled,textarea.ro-field:disabled{
+    background:#ffffff !important; color:var(--ink) !important; cursor:default;
+    border:1px solid var(--line) !important; opacity:1 !important;
+  }
+  textarea.ro-field:disabled{ min-height:64px; line-height:1.45; }
 
   .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-bottom:14px;}
   .stat{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:5px;padding:12px 14px;}
@@ -302,10 +312,10 @@
     <button class="side-btn" id="helpBtn" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e9dcc2;">📖 사용자 매뉴얼</button>
 
     <div class="nav" id="navAuditor" style="display:none;">
-      <button data-page="projects">🗂 프로젝트 목록</button>
+      <button data-page="projects" class="nav-viewable">🗂 프로젝트 목록</button>
       <button data-page="audit" class="active">📋 심사 작성</button>
       <button data-page="overview">📊 프로젝트 심사결과 현황</button>
-      <button data-page="template">🛠 심사 항목 관리</button>
+      <button data-page="template" class="nav-viewable">🛠 심사 항목 관리</button>
       <button data-page="fieldManage">🧑‍🔧 현장심사원 관리</button>
       <button data-page="myAccount">🔑 내 계정</button>
     </div>
@@ -315,6 +325,8 @@
     <div class="nav" id="navField" style="display:none;">
       <button data-page="audit" data-fieldmode="own" class="active">📋 내 자체점검</button>
       <button data-page="deptProjects" data-fieldmode="browse">🔍 전체 프로젝트 보기(수행부서 화면)</button>
+      <button data-page="projects" data-fieldmode="readonly">🗂 프로젝트 목록 (열람)</button>
+      <button data-page="template" data-fieldmode="readonly">🛠 심사 항목 관리 (열람)</button>
     </div>
     <button class="side-btn" id="logoutBtn" style="display:none;background:transparent;border:1px solid rgba(255,255,255,.3);color:#dfe4ee;">로그아웃</button>
 
@@ -377,7 +389,7 @@
       <div class="card">
         <div class="proj-toolbar"><input type="text" id="projSearchDept" placeholder="🔍 프로젝트명 검색" style="max-width:240px;padding:8px 10px;border:1px solid var(--line);border-radius:3px;"></div>
         <table class="ov-table">
-          <thead><tr><th>프로젝트명</th><th>PM</th><th>시작일</th><th>종료일(계획)</th><th>종료일(실적)</th><th>심사현황</th><th>자체점검현황</th><th style="width:150px;">작업</th></tr></thead>
+          <thead><tr><th>프로젝트명</th><th>PM</th><th>시작일</th><th>종료일(계획)</th><th>종료일(실적)</th><th>심사현황</th><th>자체점검현황</th><th style="width:150px;">내부평가(QA)</th></tr></thead>
           <tbody id="deptProjTableBody"></tbody>
         </table>
       </div>
@@ -445,7 +457,7 @@
       <div class="title-row"><div><h1>심사 항목 <span class="accent">관리</span></h1><div class="subtitle">영역·코드·세부항목·산출물(예시)·ISO조항 수정, 항목 추가/순서 변경, 필수 산출물·가림 지정 — 심사원만 수정 가능</div></div></div>
       <div class="card">
         <div class="hint">필수로 표시한 항목은 "새 심사 시작" 시 확인 목록에 표시되며, N/A를 제외한 점수가 3점 이상이면 KPI의 <b>표준화율</b> 항목에 "작성된 산출물"로 자동 산정됩니다. 2점 이하 항목은 자동으로 프로젝트 지적사항이 됩니다. <b>항목가림</b>에 체크하면 데이터는 남지만 실제 평가 화면에는 표시되지 않습니다.</div>
-        <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;"><button class="btn primary" id="addTmplRowBtn">+ 심사 항목 추가</button><button class="btn" id="tmplSaveBtn">💾 저장</button><button class="btn danger" id="tmplResetDefaultsBtn">⚙️ 앱 기본 항목으로 초기화</button><span id="tmplSaveIndicator" style="font-size:12px;color:var(--ink-soft);"></span></div>
+        <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;"><button class="btn primary" id="addTmplRowBtn">+ 심사 항목 추가</button><button class="btn" id="tmplSaveBtn">💾 저장</button><button class="btn danger" id="tmplResetDefaultsBtn" style="display:none;">⚙️ 앱 기본 항목으로 초기화</button><span id="tmplSaveIndicator" style="font-size:12px;color:var(--ink-soft);"></span></div>
         <table>
           <thead><tr>
             <th style="width:54px;">순서</th><th style="width:50px;">필수</th><th style="width:60px;">항목가림</th><th style="width:14%;">영역</th><th style="width:64px;">코드</th>
@@ -480,7 +492,7 @@
         </div>
         <div class="actions">
           <button class="btn" id="emailPdfBtn">📧 PDF로 이메일 보내기</button>
-          <button class="btn gold" id="reauditBtn">🔁 재심사 시작(다음 회차)</button>
+          <button class="btn gold" id="reauditBtn">🔁 재심사(다음 회차)</button>
           <button class="btn" id="completeBtn">✅ 심사 완료 처리</button>
           <button class="btn" id="selfCheckCompleteBtn" style="display:none;">✅ 자체점검 완료 처리</button>
           <button class="btn gold" id="selfCheckRecheckBtn" style="display:none;">🔁 재점검 시작(보완사항 추가)</button>
@@ -1597,7 +1609,7 @@ const HELP_CONTENT = {
     { title: "심사 항목 관리", items: [
       { h: "항목 편집", p: "영역·코드·세부항목·산출물·ISO조항을 수정하고 ▲▼로 순서를 바꿀 수 있습니다. 필수(★) 표시는 KPI 표준화율에 자동 반영됩니다." },
       { h: "항목가림", p: "삭제 대신 \"항목가림\"으로 처리하면 데이터는 남기고 화면에서만 제외됩니다. 모든 변경은 즉시 저장되어 전체 심사원 화면에 자동 반영됩니다." },
-      { h: "⚙️ 앱 기본 항목으로 초기화", p: "새 버전의 앱 파일로 교체했는데도 심사 항목 내용이 안 바뀐다면, 이미 GitHub에 예전 항목이 저장되어 있어서 그 값을 계속 불러오기 때문입니다. 이 버튼을 누르면 GitHub에 저장된 내용을 지우고 지금 이 앱 파일에 내장된 최신 기본 항목(31개)으로 완전히 교체해서 저장합니다. 지금까지 직접 수정한 내용은 모두 사라지니 신중하게 사용하세요." },
+      { h: "⚙️ 앱 기본 항목으로 초기화 (마스터 전용)", p: "새 버전의 앱 파일로 교체했는데도 심사 항목 내용이 안 바뀐다면, 이미 GitHub에 예전 항목이 저장되어 있어서 그 값을 계속 불러오기 때문입니다. 이 버튼을 누르면 GitHub에 저장된 내용을 지우고 지금 이 앱 파일에 내장된 최신 기본 항목(31개)으로 완전히 교체해서 저장합니다. 지금까지 직접 수정한 내용은 모두 사라지니 신중하게 사용하세요. 이 버튼은 마스터에게만 보이며, 일반 심사원 화면에는 나타나지 않습니다." },
     ] },
     { title: "프로젝트 목록 & 전용 권한", items: [
       { h: "프로젝트 등록", p: "수주번호·PM·일정 등을 등록하고, 컬럼 순서·너비를 자유롭게 편집하며, 엑셀 업로드·붙여넣기로 일괄 등록할 수 있습니다." },
@@ -1628,13 +1640,14 @@ const HELP_CONTENT = {
     ] },
     { title: "지적사항 & 재심사 (Ⅳ탭)", items: [
       { h: "지적사항 자동 집계", p: "2점 이하로 평가한 항목이 자동으로 지적사항 목록에 오릅니다. 기본적으로 본인이 평가한 항목만 표시되며, 여러 심사원를 종합한 전체 현황은 수행부서 조회에서 확인할 수 있습니다." },
-      { h: "재심사 시작", p: "완료된 심사를 다시 열어 \"재심사 시작\"을 누르면 이전 점수가 참고용으로 복사된 새 회차가 시작됩니다. 이전 회차 대비 바뀐 항목만 변경내역 표로 자동 정리되어 어떤 부분이 개선되었는지 한눈에 확인할 수 있습니다." },
+      { h: "재심사(다음 회차)", p: "완료된 심사를 다시 열어 \"재심사(다음 회차)\"를 누르면 이전 점수가 참고용으로 복사된 새 회차가 시작됩니다. 이전 회차 대비 바뀐 항목만 변경내역 표로 자동 정리되어 어떤 부분이 개선되었는지 한눈에 확인할 수 있습니다." },
       { h: "완료 심사 삭제", p: "본인이 작성한 심사는 필요 시 \"이 심사 삭제\" 버튼으로 삭제할 수 있으며(완료된 것은 마스터만), 삭제하면 프로젝트 현황의 회차 수도 즉시 갱신됩니다." },
     ] },
     { title: "심사결과 PDF로 이메일 보내기", items: [
       { h: "📧 PDF로 이메일 보내기 버튼", p: "심사 화면 상단 버튼을 누르면 Ⅰ~Ⅳ 전체 내용(체크리스트 전체 항목·KPI·종합평가·지적사항)이 담긴 PDF가 \"프로젝트명_품질심사결과.pdf\" 파일명으로 자동 생성·다운로드됩니다." },
-      { h: "지적사항에 ISO 9001 조항 표시", p: "PDF의 Ⅳ. 지적사항 표에는 어떤 항목이 왜 지적됐는지 근거를 알 수 있도록, 해당 체크리스트 항목의 ISO 9001 조항 번호가 함께 표시됩니다." },
-      { h: "메일 제목·본문 자동 작성", p: "제목은 \"프로젝트명_품질심사결과\"로, 본문은 \"품질파트에서 (프로젝트명) 프로젝트 품질 심사 결과를 알려드립니다\"로 시작해 회차·평가자·평가일자·최종 종합점수(등급)까지 자동으로 채워집니다." },
+      { h: "Ⅱ. KPI 평가표 입력값 표기 순서", p: "KPI 표의 입력값 열은 \"입력②/①\" 순서로 표시됩니다(투입 순서가 아니라 결과에 가까운 값을 먼저 보이도록 구성)." },
+      { h: "Ⅳ. 지적사항 표 구성", p: "영역·세부항목·ISO 9001 조항·평가내역·점수·상태 순으로 표시됩니다. 평가내역에는 어느 심사원이 작성했는지 표시되지 않고 내용만 나오며, \"최초지적(회차)\" 열은 없앴고 \"최근 평균점수\"는 \"점수\"로 이름을 바꿔 간결하게 정리했습니다." },
+      { h: "메일 제목·본문 자동 작성", p: "제목은 \"프로젝트명_품질심사결과\"로, 본문은 \"품질파트에서 (프로젝트명) 프로젝트 품질 심사 결과를 알려드립니다\"로 시작해 회차·평가부서·평가일자·최종 종합점수(등급)까지 자동으로 채워집니다." },
       { h: "첨부는 직접 해야 함", p: "브라우저 보안 정책상 파일을 메일에 자동으로 첨부할 수는 없습니다. 방금 다운로드된 PDF 파일을 열려 있는 메일 창에 끌어다 놓아 첨부한 뒤 발송하면 됩니다." },
     ] },
     { title: "내 계정", items: [
@@ -1720,7 +1733,7 @@ function buildAuditReportHTML(a){
     const gradeTxt = r.g? r.g.g+' ('+r.g.desc+')' : '-';
     return `<tr>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:10px;"><b>${escapeHtml(r.item.cat)}</b><div style="font-size:8.5px;color:#777;margin-top:2px;">${escapeHtml(r.item.name)}</div></td>
-      <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">${escapeHtml(r.rec.input1===''?'-':String(r.rec.input1))} / ${escapeHtml(r.rec.input2===''?'-':String(r.rec.input2))}</td>
+      <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">${escapeHtml(r.rec.input2===''?'-':String(r.rec.input2))} / ${escapeHtml(r.rec.input1===''?'-':String(r.rec.input1))}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">${pct}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9px;text-align:center;">${escapeHtml(gradeTxt)}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">${r.weight}</td>
@@ -1730,17 +1743,18 @@ function buildAuditReportHTML(a){
 
   const findingRows = findings.length ? findings.map(f=>{
     const firstFlag = f.flaggedScores.find(s=>s.round===f.flaggedRound) || f.flaggedScores[0];
-    const remarkTxt = f.latestRemark || (firstFlag&&firstFlag.remark) || '(평가내역 미입력)';
+    const remarkTxtRaw = f.latestRemark || (firstFlag&&firstFlag.remark) || '(평가내역 미입력)';
+    const remarkTxt = stripAuditorAttribution(remarkTxtRaw);
+    const scoreTxt = f.avgLatest!==null ? f.avgLatest.toFixed(1)+'점' : (firstFlag? firstFlag.score+'점' : '-');
     return `<tr>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;">${escapeHtml(zoneLabel(f.item.zone)||'')}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:10px;">${escapeHtml(f.item.name)}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9px;color:#555;">${escapeHtml(f.item.iso||'-')}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9px;color:#555;">${escapeHtml(remarkTxt)}</td>
-      <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">회차 ${f.flaggedRound}</td>
-      <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;">${f.avgLatest!==null? f.avgLatest.toFixed(1)+'점 (회차 '+f.maxRound+')' : '-'}</td>
+      <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;font-weight:bold;">${scoreTxt}</td>
       <td style="padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-align:center;font-weight:bold;color:${f.resolved?'#2e6b49':'#a5433a'};">${f.resolved?'시정완료':'미조치'}</td>
     </tr>`;
-  }).join('') : `<tr><td colspan="7" style="padding:10px;border:1px solid #ddd;text-align:center;color:#777;font-size:10px;">지적사항 없음</td></tr>`;
+  }).join('') : `<tr><td colspan="6" style="padding:10px;border:1px solid #ddd;text-align:center;color:#777;font-size:10px;">지적사항 없음</td></tr>`;
 
   return `
     <div style="border-bottom:3px solid #28344a;padding-bottom:14px;margin-bottom:18px;">
@@ -1770,7 +1784,7 @@ function buildAuditReportHTML(a){
 
     <div style="font-size:13px;font-weight:700;color:#28344a;margin-bottom:8px;border-left:4px solid #a97c3f;padding-left:8px;">Ⅱ. 프로젝트 KPI 평가</div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:22px;">
-      <tr style="background:#28344a;color:#fff;"><th style="padding:5px 6px;font-size:9.5px;">지표</th><th style="padding:5px 6px;font-size:9.5px;">입력①/②</th><th style="padding:5px 6px;font-size:9.5px;">결과</th><th style="padding:5px 6px;font-size:9.5px;">등급</th><th style="padding:5px 6px;font-size:9.5px;">가중치</th><th style="padding:5px 6px;font-size:9.5px;">반영점수</th></tr>
+      <tr style="background:#28344a;color:#fff;"><th style="padding:5px 6px;font-size:9.5px;">지표</th><th style="padding:5px 6px;font-size:9.5px;">입력②/①</th><th style="padding:5px 6px;font-size:9.5px;">결과</th><th style="padding:5px 6px;font-size:9.5px;">등급</th><th style="padding:5px 6px;font-size:9.5px;">가중치</th><th style="padding:5px 6px;font-size:9.5px;">반영점수</th></tr>
       ${kpiRows}
       <tr style="background:#f6f4ee;font-weight:700;"><td colspan="4" style="padding:6px;border:1px solid #ddd;text-align:right;font-size:10px;">KPI 종합점수</td><td style="padding:6px;border:1px solid #ddd;text-align:center;font-size:10px;">${kpiT.wsum}</td><td style="padding:6px;border:1px solid #ddd;text-align:center;font-size:10.5px;">${kpiT.ssum.toFixed(1)} (${kpiT.band? kpiT.band.g : '-'})</td></tr>
     </table>
@@ -1785,7 +1799,7 @@ function buildAuditReportHTML(a){
 
     <div style="font-size:13px;font-weight:700;color:#28344a;margin-bottom:8px;border-left:4px solid #a97c3f;padding-left:8px;">Ⅳ. 지적사항</div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
-      <tr style="background:#28344a;color:#fff;"><th style="padding:5px 6px;font-size:9.5px;">영역</th><th style="padding:5px 6px;font-size:9.5px;">세부항목</th><th style="padding:5px 6px;font-size:9.5px;">ISO 9001 조항</th><th style="padding:5px 6px;font-size:9.5px;">평가내역</th><th style="padding:5px 6px;font-size:9.5px;">최초지적</th><th style="padding:5px 6px;font-size:9.5px;">최근 평균점수</th><th style="padding:5px 6px;font-size:9.5px;">상태</th></tr>
+      <tr style="background:#28344a;color:#fff;"><th style="padding:5px 6px;font-size:9.5px;">영역</th><th style="padding:5px 6px;font-size:9.5px;">세부항목</th><th style="padding:5px 6px;font-size:9.5px;">ISO 9001 조항</th><th style="padding:5px 6px;font-size:9.5px;">평가내역</th><th style="padding:5px 6px;font-size:9.5px;">점수</th><th style="padding:5px 6px;font-size:9.5px;">상태</th></tr>
       ${findingRows}
     </table>
     <div style="margin-top:8px;font-size:9px;color:#999;">본 보고서는 품질심사 콘솔에서 자동 생성되었습니다.</div>
@@ -1962,9 +1976,9 @@ function showPage(p){
   const isAuditorSide = role==='auditor' || role==='master';
   if(role==='field'){ fieldBrowsing = (p==='deptProjects' || (p==='audit' && (deptProjectKey||deptSelfCheckId))); }
   document.getElementById('page-audit').style.display = p==='audit'?'block':'none';
-  document.getElementById('page-template').style.display = (p==='template'&&isAuditorSide)?'block':'none';
+  document.getElementById('page-template').style.display = (p==='template'&&(isAuditorSide||role==='dept'||role==='field'))?'block':'none';
   document.getElementById('page-overview').style.display = (p==='overview'&&isAuditorSide)?'block':'none';
-  document.getElementById('page-projects').style.display = (p==='projects'&&isAuditorSide)?'block':'none';
+  document.getElementById('page-projects').style.display = (p==='projects'&&(isAuditorSide||role==='dept'||role==='field'))?'block':'none';
   document.getElementById('page-myaccount').style.display = (p==='myAccount'&&(isAuditorSide||role==='field'))?'block':'none';
   document.getElementById('page-fieldmanage').style.display = (p==='fieldManage'&&isAuditorSide)?'block':'none';
   document.getElementById('page-auditors').style.display = (p==='auditors'&&role==='master')?'block':'none';
@@ -2603,25 +2617,36 @@ function renderFindingsTab(a){
 
 /* ================= Template management page ================= */
 function renderTemplatePage(){
+  const readOnlyViewer = (role==='dept' || role==='field');
+  const resetBtn = document.getElementById('tmplResetDefaultsBtn');
+  if(resetBtn) resetBtn.style.display = (role==='master') ? 'inline-block' : 'none';
+  ['addTmplRowBtn','tmplSaveBtn'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = readOnlyViewer ? 'none' : 'inline-block';
+  });
   const body=document.getElementById('tmplBody');
   body.innerHTML='';
+  const ro = readOnlyViewer ? 'disabled class="ro-field"' : '';
   template.forEach((t,idx)=>{
     const tr=document.createElement('tr'); tr.className='tmpl-row';
     const zoneOptions = ZONES.map(z=>`<option value="${z.code}" ${t.zone===z.code?'selected':''}>${z.label}</option>`).join('');
     tr.innerHTML=`
-      <td><div class="tmpl-move">
+      <td>${readOnlyViewer?'':`<div class="tmpl-move">
         <button data-move="up" data-idx="${idx}" ${idx===0?'disabled':''}>▲</button>
         <button data-move="down" data-idx="${idx}" ${idx===template.length-1?'disabled':''}>▼</button>
-      </div></td>
-      <td style="text-align:center;"><input type="checkbox" class="req-check" data-idx="${idx}" ${t.required?'checked':''}></td>
-      <td style="text-align:center;"><input type="checkbox" class="hide-check" data-idx="${idx}" ${t.hidden?'checked':''}></td>
-      <td><select data-idx="${idx}" data-field="zone">${zoneOptions}</select></td>
-      <td><input type="text" data-idx="${idx}" data-field="code" value="${escapeAttr(t.code)}"></td>
-      <td><input type="text" data-idx="${idx}" data-field="name" value="${escapeAttr(t.name)}"></td>
-      <td><textarea data-idx="${idx}" data-field="evid">${escapeHtml(t.evid)}</textarea></td>
-      <td><textarea data-idx="${idx}" data-field="iso">${escapeHtml(t.iso)}</textarea></td>`;
+      </div>`}</td>
+      <td style="text-align:center;"><input type="checkbox" class="req-check" data-idx="${idx}" ${t.required?'checked':''} ${ro}></td>
+      <td style="text-align:center;">${readOnlyViewer?'':`<input type="checkbox" class="hide-check" data-idx="${idx}" ${t.hidden?'checked':''}>`}</td>
+      <td><select data-idx="${idx}" data-field="zone" ${ro}>${zoneOptions}</select></td>
+      <td><input type="text" data-idx="${idx}" data-field="code" value="${escapeAttr(t.code)}" ${ro}></td>
+      <td><input type="text" data-idx="${idx}" data-field="name" value="${escapeAttr(t.name)}" ${ro}></td>
+      <td><textarea data-idx="${idx}" data-field="evid" ${ro}>${escapeHtml(t.evid)}</textarea></td>
+      <td><textarea data-idx="${idx}" data-field="iso" ${ro}>${escapeHtml(t.iso)}</textarea></td>`;
     body.appendChild(tr);
   });
+  if(readOnlyViewer){
+    body.querySelectorAll('textarea.ro-field').forEach(ta=>{ ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; });
+  }
   body.querySelectorAll('button[data-move]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const idx=+btn.dataset.idx, dir=btn.dataset.move;
@@ -2945,7 +2970,12 @@ function renderHiddenColsBox(){
   });
 }
 function renderProjectsPage(){
+  const readOnlyViewer = (role==='dept' || role==='field');
   document.getElementById('bulkDeleteBtn').style.display = role==='master' ? 'inline-block' : 'none';
+  ['addProjectBtn','addColumnBtn','projSaveBtn'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = readOnlyViewer ? 'none' : 'inline-block';
+  });
   const COL_OFFSET = 1; // checkbox column occupies colgroup index 0
   const visibleDefs = projectColumnDefs.filter(c=>!c.hidden);
   const colgroup = document.getElementById('projColgroup');
@@ -2958,13 +2988,12 @@ function renderProjectsPage(){
   let headHtml = `<th>${role==='master'?'<input type="checkbox" id="selectAllProj">':''}</th>`;
   visibleDefs.forEach((c,ci)=>{
     const realIdx = projectColumnDefs.indexOf(c);
-    headHtml += `<th draggable="true" data-dragci="${realIdx}">
+    headHtml += `<th ${readOnlyViewer?'':'draggable="true"'} data-dragci="${realIdx}">
       <div class="col-head-label">${c.label}</div>
       <div class="col-head-ctrl">
-        <button data-hide="${realIdx}" title="숨기기">👁‍🗨</button>
-        ${!c.builtin?`<button data-del="${realIdx}" class="del-col" title="삭제">✕</button>`:''}
+        ${readOnlyViewer?'':`<button data-hide="${realIdx}" title="숨기기">👁‍🗨</button>${!c.builtin?`<button data-del="${realIdx}" class="del-col" title="삭제">✕</button>`:''}`}
       </div>
-      <div class="col-resize-handle" data-colidx="${ci+COL_OFFSET}"></div>
+      ${readOnlyViewer?'':`<div class="col-resize-handle" data-colidx="${ci+COL_OFFSET}"></div>`}
     </th>`;
   });
   const fixedCols = [
@@ -3060,20 +3089,22 @@ function renderProjectsBody(visibleDefs){
   body.innerHTML='';
   const term = projSearchTermAuditor.trim().toLowerCase();
   const isMaster = role==='master';
+  const readOnlyViewer = (role==='dept' || role==='field');
   projects.forEach((p,idx)=>{
     if(term && !(p.name||'').toLowerCase().includes(term)) return;
     const tr=document.createElement('tr');
     let cells = `<td style="text-align:center;">${isMaster?`<input type="checkbox" data-sel="${idx}" ${p.selected?'checked':''}>`:''}</td>`;
     visibleDefs.forEach(c=>{
+      const ro = readOnlyViewer ? 'disabled class="ro-field"' : '';
       if(c.builtin){
         if(c.key==='amount'){
-          cells += `<td><input type="text" inputmode="numeric" data-idx="${idx}" data-field="amount" value="${escapeAttr(formatThousands(p.amount))}"></td>`;
+          cells += `<td><input type="text" inputmode="numeric" data-idx="${idx}" data-field="amount" value="${escapeAttr(formatThousands(p.amount))}" ${ro}></td>`;
         } else {
           const type = (c.key==='start'||c.key==='planEnd'||c.key==='actualEnd') ? 'date' : (c.key==='planMM'||c.key==='actualMM' ? 'number':'text');
-          cells += `<td><input type="${type}" data-idx="${idx}" data-field="${c.key}" value="${escapeAttr(p[c.key]||'')}"></td>`;
+          cells += `<td><input type="${type}" data-idx="${idx}" data-field="${c.key}" value="${escapeAttr(p[c.key]||'')}" ${ro}></td>`;
         }
       } else {
-        cells += `<td><input type="text" data-idx="${idx}" data-extra="${c.key}" value="${escapeAttr((p.extra||{})[c.key]||'')}"></td>`;
+        cells += `<td><input type="text" data-idx="${idx}" data-extra="${c.key}" value="${escapeAttr((p.extra||{})[c.key]||'')}" ${ro}></td>`;
       }
     });
     const st = computeProjectAuditStatus(p.id);
@@ -3093,13 +3124,18 @@ function renderProjectsBody(visibleDefs){
     const scChipClass = scSt.status==='done'?'done':(scSt.status==='progress'?'progress':(scSt.status==='na'?'na':'none'));
     cells += `<td><span class="status-chip ${scChipClass} ${(scSt.status!=='none'&&scSt.status!=='na')?'clickable':''}" ${(scSt.status!=='none'&&scSt.status!=='na')?`data-viewsc-chip="${p.id}"`:''}>${scSt.label}</span></td>`;
     const myCompleted = audits.find(a=>a.projectId===p.id && a.auditor===loggedInName && a.completed && (a.kind||'formal')==='formal');
-    let actionHtml = myCompleted
-      ? `<button class="btn primary" data-viewmine="${p.id}" style="font-size:10.5px;padding:5px 8px;">평가보기</button>`
-      : `<button class="btn primary" data-start="${idx}" style="font-size:10.5px;padding:5px 8px;" ${p.notApplicable?'disabled':''}>심사 열기</button>`;
-    if(isMaster){
-      actionHtml += `<button class="del-btn" data-delproj="${idx}" style="margin-left:4px;">삭제</button>`;
+    let actionHtml;
+    if(readOnlyViewer){
+      actionHtml = p.notApplicable ? `<span class="status-chip na">비대상</span>` : `<span style="color:var(--ink-soft);font-size:10.5px;">열람 전용</span>`;
     } else {
-      actionHtml += `<button class="btn ${p.notApplicable?'na-revert':'na-toggle'}" data-toggle-na="${idx}" style="margin-left:4px;font-size:10.5px;padding:5px 8px;">${p.notApplicable?'대상전환':'비대상'}</button>`;
+      actionHtml = myCompleted
+        ? `<button class="btn primary" data-viewmine="${p.id}" style="font-size:10.5px;padding:5px 8px;">평가보기</button>`
+        : `<button class="btn primary" data-start="${idx}" style="font-size:10.5px;padding:5px 8px;" ${p.notApplicable?'disabled':''}>심사 열기</button>`;
+      if(isMaster){
+        actionHtml += `<button class="del-btn" data-delproj="${idx}" style="margin-left:4px;">삭제</button>`;
+      } else {
+        actionHtml += `<button class="btn ${p.notApplicable?'na-revert':'na-toggle'}" data-toggle-na="${idx}" style="margin-left:4px;font-size:10.5px;padding:5px 8px;">${p.notApplicable?'대상전환':'비대상'}</button>`;
+      }
     }
     cells += `<td>${actionHtml}</td>`;
     tr.innerHTML = cells;
@@ -3412,9 +3448,14 @@ async function deleteCurrent(){
 
 /* ================= Init ================= */
 function bindNav(){
+  const READONLY_ALLOWED_PAGES = ['projects','template'];
   document.querySelectorAll('#navAuditor button, #navMasterOnly button').forEach(b=>{
     b.addEventListener('click', ()=>{
-      if(role==='dept'){ showInlineMenuNotice(b, '심사원만 작성/열람 할 수 있습니다'); return; }
+      if(role==='dept'){
+        if(READONLY_ALLOWED_PAGES.includes(b.dataset.page)){ showPage(b.dataset.page); return; }
+        showInlineMenuNotice(b, '심사원만 작성/열람 할 수 있습니다');
+        return;
+      }
       showPage(b.dataset.page);
     });
   });
@@ -3448,6 +3489,7 @@ function bindNav(){
     showToast('심사 항목을 저장했습니다.');
   });
   document.getElementById('tmplResetDefaultsBtn').addEventListener('click', async ()=>{
+    if(role!=='master'){ showToast('마스터만 사용할 수 있습니다.'); return; }
     if(!confirm('현재 GitHub에 저장된 심사 항목을 전부 지우고, 이 앱 파일에 들어있는 최신 기본 항목(31개)으로 되돌리시겠습니까?\n\n지금까지 직접 수정하신 내용(항목 추가/삭제/순서변경/ISO조항 수정 등)은 모두 사라지고, 앱 코드에 내장된 기본값으로 완전히 교체됩니다. 이 작업은 되돌릴 수 없습니다.')) return;
     template = defaultTemplate();
     if(autoSaveTimer){ clearTimeout(autoSaveTimer); autoSaveTimer=null; }
