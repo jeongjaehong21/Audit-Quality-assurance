@@ -307,6 +307,8 @@
       <button id="roleAuditorBtn">🔒 심사원 모드</button>
       <button id="roleDeptBtn" class="active">👁 수행부서 조회</button>
     </div>
+    <button class="side-btn" id="fieldRequestBtn" style="display:none;background:rgba(181,112,58,.22);border:1px solid rgba(181,112,58,.5);color:#f5e9da;">🙋 현장심사원 등록 요청</button>
+    <button class="side-btn" id="fieldRequestNotiBtn" style="display:none;background:rgba(181,112,58,.22);border:1px solid rgba(181,112,58,.5);color:#f5e9da;">🔔 신규 등록 요청</button>
     <button class="side-btn" id="manualSaveBtn" style="display:none;background:rgba(58,114,86,.25);border:1px solid rgba(58,114,86,.5);color:#eafff2;">💾 전체 반영하기</button>
     <div id="autoSaveIndicator" style="display:none;font-size:9.5px;color:#c3cad8;text-align:center;margin-top:-4px;margin-bottom:2px;"></div>
     <button class="side-btn" id="helpBtn" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e9dcc2;">📖 사용자 매뉴얼</button>
@@ -327,6 +329,7 @@
       <button data-page="deptProjects" data-fieldmode="browse">🔍 전체 프로젝트 보기(수행부서 화면)</button>
       <button data-page="projects" data-fieldmode="readonly">🗂 프로젝트 목록 (열람)</button>
       <button data-page="template" data-fieldmode="readonly">🛠 심사 항목 관리 (열람)</button>
+      <button data-page="myAccount">🔑 내 계정</button>
     </div>
     <button class="side-btn" id="logoutBtn" style="display:none;background:transparent;border:1px solid rgba(255,255,255,.3);color:#dfe4ee;">로그아웃</button>
 
@@ -1015,6 +1018,7 @@ let settings = { gradeCriteria: defaultGradeCriteria(), overallBands: defaultOve
 let userAccounts = { masterPassword: 'admin', auditors: [], fieldAuditors: [] }; // auditors: [{name,password}], fieldAuditors: [{name,password,projectId}]
 let fieldAssignments = []; // [{name, projectId}] — explicit extra assignments (a project can have more than one field auditor, beyond PM name matching)
 let fieldExclusions = []; // [{name, projectId}] — removes a PM-auto-matched auditor's access to one specific project (without changing the PM field itself)
+let fieldAuditorRequests = []; // [{id, projectId, projectName, dept, requester, createdAt, seen}] — 수행부서가 제출한 현장심사원 등록 요청(알림용)
 let audits = [];
 let projects = [];
 let projectColumnDefs = PROJECT_FIELDS_BASE.map(f=>({...f, builtin:true})); // order+width+label, includes builtin & custom columns
@@ -1144,7 +1148,7 @@ async function loadAll(){
   }catch(e){}
   try{
     const r4=await storage.get('user_accounts_v1', true);
-    if(r4&&r4.value){ const parsed=JSON.parse(r4.value); if(parsed.masterPassword) userAccounts.masterPassword=parsed.masterPassword; if(parsed.auditors) userAccounts.auditors=parsed.auditors; userAccounts.fieldAuditors = parsed.fieldAuditors||[]; fieldAssignments = parsed.fieldAssignments||[]; fieldExclusions = parsed.fieldExclusions||[]; }
+    if(r4&&r4.value){ const parsed=JSON.parse(r4.value); if(parsed.masterPassword) userAccounts.masterPassword=parsed.masterPassword; if(parsed.auditors) userAccounts.auditors=parsed.auditors; userAccounts.fieldAuditors = parsed.fieldAuditors||[]; fieldAssignments = parsed.fieldAssignments||[]; fieldExclusions = parsed.fieldExclusions||[]; fieldAuditorRequests = parsed.fieldAuditorRequests||[]; }
   }catch(e){}
   try{
     const r3=await storage.get('projects_v2', true);
@@ -1197,7 +1201,7 @@ async function persistAll(){
   try{ await storage.set('audits_index_v3', JSON.stringify(audits), true); }catch(e){console.error(e); showToast('저장 중 오류: '+e.message);}
   try{ await storage.set('kpi_settings_v2', JSON.stringify(settings), true); }catch(e){console.error(e);}
   try{ await storage.set('projects_v2', JSON.stringify({list:projects, columnDefs:projectColumnDefs, fixedColWidths}), true); }catch(e){console.error(e);}
-  try{ await storage.set('user_accounts_v1', JSON.stringify(Object.assign({}, userAccounts, {fieldAssignments, fieldExclusions})), true); }catch(e){console.error(e);}
+  try{ await storage.set('user_accounts_v1', JSON.stringify(Object.assign({}, userAccounts, {fieldAssignments, fieldExclusions, fieldAuditorRequests})), true); }catch(e){console.error(e);}
 }
 function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 /** 사이드바 메뉴처럼 특정 버튼 옆에 붙여서 짧게 안내 문구를 보여줍니다(화면 하단 토스트 대신). */
@@ -1385,6 +1389,157 @@ function syncFieldAuditorsForAllPMs(){
     if(userAccounts.fieldAuditors.length>before) added = true;
   });
   return added;
+}
+
+/* ================= 수행부서 → 현장심사원 등록 요청 (알림) ================= */
+function updateFieldRequestNotiButton(){
+  const btn = document.getElementById('fieldRequestNotiBtn');
+  if(!btn) return;
+  const isAuditorSide = (role==='master' || role==='auditor');
+  if(!isAuditorSide){ btn.style.display='none'; return; }
+  const pending = fieldAuditorRequests.filter(r=>r.status==='pending').length;
+  if(pending>0){
+    btn.style.display = 'block';
+    btn.textContent = `🔔 신규 등록 요청 (${pending}건)`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+function openFieldRequestModal(){
+  const root = document.getElementById('modalRoot');
+  const projOptions = projects.map(p=>`<option value="${p.id}">${escapeAttr(p.name||'(제목없음)')}</option>`).join('');
+  root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:460px;">
+    <h3 style="margin-top:0;">🙋 현장심사원 등록 요청</h3>
+    <div class="hint" style="margin-bottom:10px;">해당 프로젝트에 현장심사원으로 등록될 분의 정보를 입력해 주세요. 심사원 또는 마스터가 승인해야 계정이 생성됩니다.</div>
+    <label style="font-size:12px;font-weight:600;">대상 프로젝트</label>
+    <select id="freqProject" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
+      <option value="">선택하세요</option>${projOptions}
+    </select>
+    <label style="font-size:12px;font-weight:600;">부서명</label>
+    <input type="text" id="freqDept" placeholder="예: 개발1팀" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
+    <label style="font-size:12px;font-weight:600;">요청자(현장심사원으로 등록될 이름)</label>
+    <input type="text" id="freqRequester" placeholder="예: 홍길동" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
+    <div class="hint" style="margin-bottom:10px;">승인이 완료되면 초기 비밀번호 <b>1234</b>로 계정이 만들어집니다. 최초 접속 후 반드시 "내 계정"에서 비밀번호를 변경해 주세요.</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn" id="freqCancelBtn">취소</button>
+      <button class="btn primary" id="freqSubmitBtn">신청완료</button>
+    </div>
+  </div></div>`;
+  document.getElementById('freqCancelBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
+  document.getElementById('freqSubmitBtn').addEventListener('click', ()=>{
+    const projectId = document.getElementById('freqProject').value;
+    const dept = document.getElementById('freqDept').value.trim();
+    const requester = document.getElementById('freqRequester').value.trim();
+    if(!projectId || !dept || !requester){ showToast('모든 항목을 입력해 주세요'); return; }
+    const proj = projects.find(p=>p.id===projectId);
+    if(!proj){ showToast('프로젝트를 다시 선택해 주세요'); return; }
+    if(requester==='admin' || userAccounts.auditors.some(a=>a.name===requester) || userAccounts.fieldAuditors.some(a=>a.name===requester)){
+      showToast(`이미 사용 중인 이름입니다: "${requester}". 다른 이름을 입력하거나 담당 심사원에게 문의해 주세요.`);
+      return;
+    }
+    if(fieldAuditorRequests.some(r=>r.status==='pending' && r.requester===requester && r.projectId===proj.id)){
+      showToast('이미 동일한 요청이 접수되어 승인 대기 중입니다.');
+      return;
+    }
+    // 계정은 아직 만들지 않고, 승인 대기 상태로만 등록합니다(심사원/마스터 승인 시 계정 생성).
+    fieldAuditorRequests.push({
+      id: 'freq_'+Date.now()+Math.random().toString(36).slice(2,7),
+      projectId: proj.id, projectName: proj.name||'(제목없음)',
+      dept, requester, createdAt: Date.now(), status:'pending',
+    });
+    scheduleAutoSave();
+    root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:440px;text-align:center;">
+      <h3 style="margin-top:0;">✅ 신청 접수 완료</h3>
+      <div style="font-size:13px;line-height:1.6;margin:12px 0;">
+        <b>${escapeHtml(requester)}</b>님의 <b>${escapeHtml(proj.name||'')}</b> 프로젝트 현장심사원 등록 요청이 접수되었습니다.<br><br>
+        심사원 또는 마스터의 <b>승인 후 계정이 생성</b>됩니다.<br>
+        승인되면 초기 비밀번호 <b>1234</b>로 로그인할 수 있으며, 최초 접속 후 반드시 <b>"내 계정"</b>에서 비밀번호를 변경해 주세요.
+      </div>
+      <button class="btn primary" id="freqDoneBtn" style="width:100%;">확인</button>
+    </div></div>`;
+    document.getElementById('freqDoneBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
+  });
+}
+/** 심사원/마스터 로그인 시 자동으로(또는 알림 버튼 클릭 시) 열리는 승인 창.
+ *  요청별로 승인/거절을 선택해야 하며, 승인해야만 그 시점에 계정이 만들어집니다. */
+/** 초기 비밀번호(1234)를 아직 바꾸지 않은 현장심사원에게 로그인 직후 보여주는 안내창입니다. */
+function openDefaultPasswordNotice(){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:420px;text-align:center;">
+    <h3 style="margin-top:0;">🔐 비밀번호 변경 안내</h3>
+    <div style="font-size:13px;line-height:1.6;margin:12px 0;">
+      현재 초기 비밀번호(1234)로 로그인된 상태입니다.<br>
+      보안을 위해 <b>"내 계정"</b> 메뉴에서 본인만의 비밀번호로 변경해 주세요.
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" id="pwNoticeLaterBtn" style="flex:1;">나중에</button>
+      <button class="btn primary" id="pwNoticeGoBtn" style="flex:1;">지금 변경하기</button>
+    </div>
+  </div></div>`;
+  document.getElementById('pwNoticeLaterBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
+  document.getElementById('pwNoticeGoBtn').addEventListener('click', ()=>{
+    root.innerHTML='';
+    showPage('myAccount');
+  });
+}
+function openFieldApprovalModal(){
+  const root = document.getElementById('modalRoot');
+  const render = ()=>{
+    const pending = fieldAuditorRequests.filter(r=>r.status==='pending').sort((a,b)=>a.createdAt-b.createdAt);
+    const rows = pending.map(r=>`<tr data-reqrow="${r.id}">
+        <td style="padding:7px 8px;border-bottom:1px solid var(--line);font-size:11.5px;">${escapeHtml(r.projectName)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid var(--line);font-size:11.5px;">${escapeHtml(r.dept)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid var(--line);font-size:11.5px;">${escapeHtml(r.requester)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid var(--line);font-size:10px;color:var(--ink-soft);">${new Date(r.createdAt).toLocaleString('ko-KR')}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;">
+          <button class="btn primary" data-approve="${r.id}" style="font-size:10.5px;padding:5px 9px;">승인</button>
+          <button class="btn danger" data-reject="${r.id}" style="font-size:10.5px;padding:5px 9px;margin-left:4px;">거절</button>
+        </td>
+      </tr>`).join('');
+    root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:680px;">
+      <h3 style="margin-top:0;">🔔 현장심사원 등록 승인</h3>
+      <div class="hint" style="margin-bottom:10px;">수행부서에서 신청한 현장심사원 등록 요청입니다. <b>승인</b>하면 그 즉시 초기 비밀번호 1234로 계정이 생성되고, <b>거절</b>하면 계정이 만들어지지 않습니다.</div>
+      <div style="max-height:360px;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr style="background:var(--panel);"><th style="padding:7px 8px;text-align:left;font-size:11px;">프로젝트</th><th style="padding:7px 8px;text-align:left;font-size:11px;">부서명</th><th style="padding:7px 8px;text-align:left;font-size:11px;">요청자</th><th style="padding:7px 8px;text-align:left;font-size:11px;">신청일시</th><th></th></tr>
+          ${rows || '<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--ink-soft);">승인 대기 중인 요청이 없습니다</td></tr>'}
+        </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+        <button class="btn" id="freqApprovalCloseBtn">닫기</button>
+      </div>
+    </div></div>`;
+    root.querySelectorAll('button[data-approve]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const req = fieldAuditorRequests.find(r=>r.id===btn.dataset.approve);
+        if(!req) return;
+        if(req.requester==='admin' || userAccounts.auditors.some(a=>a.name===req.requester) || userAccounts.fieldAuditors.some(a=>a.name===req.requester)){
+          showToast(`이미 사용 중인 이름이라 승인할 수 없습니다: "${req.requester}"`);
+          return;
+        }
+        userAccounts.fieldAuditors.push({name:req.requester, password:'1234', projectId:req.projectId, dept:req.dept});
+        req.status = 'approved';
+        scheduleAutoSave();
+        showToast(`"${req.requester}"님을 현장심사원으로 승인했습니다 (초기 비밀번호 1234).`);
+        updateFieldRequestNotiButton();
+        render();
+      });
+    });
+    root.querySelectorAll('button[data-reject]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const req = fieldAuditorRequests.find(r=>r.id===btn.dataset.reject);
+        if(!req) return;
+        if(!confirm(`"${req.requester}"님의 등록 요청을 거절하시겠습니까? (계정이 생성되지 않습니다)`)) return;
+        req.status = 'rejected';
+        scheduleAutoSave();
+        showToast('요청을 거절했습니다.');
+        updateFieldRequestNotiButton();
+        render();
+      });
+    });
+    document.getElementById('freqApprovalCloseBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
+  };
+  render();
 }
 function computeFindings(projectId, auditorFilter){
   if(!projectId) return [];
@@ -1593,6 +1748,7 @@ const HELP_CONTENT = {
       { h: "💾 전체 반영하기 (사이드바)", p: "혹시 모를 상황에 대비해 사이드바에 수동 저장 버튼도 있습니다. 눌러두면 그 즉시 모든 데이터를 GitHub에 저장합니다(마스터·심사원·현장심사원에게만 보이며, 열람 전용인 수행부서에는 표시되지 않습니다)." },
       { h: "페이지별 💾 저장 버튼", p: "프로젝트 목록, 심사 항목 관리 화면 상단에도 그 페이지 전용 저장 버튼이 있습니다. 자동저장을 기다리지 않고 수정 직후 바로 확실하게 저장하고 싶을 때 누르면 됩니다." },
       { h: "다른 사람 화면은 새로고침해야 반영됨", p: "내가 저장한 내용이 GitHub에는 즉시 반영되지만, 이미 화면을 열어둔 다른 직원에게 자동으로 나타나지는 않습니다. 최신 내용을 보려면 그 직원이 새로고침을 해야 합니다." },
+      { h: "새로고침해도 최신 내용이 안 보일 때", p: "일반 새로고침(F5)으로는 브라우저에 저장된 예전 화면(캐시)이 그대로 남아있어 최신 내용이 안 보일 수 있습니다. 이때는 \"강력 새로고침\"을 해주세요: PC(Chrome/Edge)에서는 Ctrl + Shift + R(맥은 Cmd + Shift + R), 아이폰 Safari는 주소창 옆 새로고침 아이콘을 길게 눌러 \"캐시 없이 새로고침\"을 선택하면 됩니다." },
     ] },
     { title: "GitHub 연동 설정 화면의 저장소 정보", items: [
       { h: "저장소 소유자/이름은 고정값", p: "\"GitHub 연동 설정\" 창의 저장소 소유자(owner)·저장소 이름(repo)은 이 앱에 미리 설정되어 있어 수정할 수 없습니다(회색으로 표시). 데이터가 어디에 저장되는지 확인하는 용도로만 보시고, 실제로 입력해야 하는 것은 본인 Personal Access Token 하나뿐입니다." },
@@ -1605,6 +1761,7 @@ const HELP_CONTENT = {
     { title: "계정 관리", items: [
       { h: "심사원 계정 관리", p: "이름 + 초기 비밀번호로 심사원 계정을 추가·삭제하고, 비밀번호를 초기화할 수 있습니다." },
       { h: "현장심사원 관리", p: "프로젝트의 PM 이름으로 현장심사원이 자동 등록됩니다(초기 비밀번호 1234). 한 프로젝트에 여러 명을 추가로 배정할 수 있고, 배정 해제·계정 삭제도 가능합니다." },
+      { h: "🔔 수행부서 등록 요청 승인", p: "수행부서가 \"현장심사원 등록 요청\"을 제출하면, 심사원·마스터가 로그인할 때 승인 창이 자동으로 뜹니다(좌측 \"🔔 신규 등록 요청\" 버튼으로도 언제든 다시 열 수 있습니다). 요청별로 \"승인\"을 누르면 그 즉시 초기 비밀번호 1234로 계정이 생성되고, \"거절\"을 누르면 계정이 만들어지지 않습니다." },
     ] },
     { title: "심사 항목 관리", items: [
       { h: "항목 편집", p: "영역·코드·세부항목·산출물·ISO조항을 수정하고 ▲▼로 순서를 바꿀 수 있습니다. 필수(★) 표시는 KPI 표준화율에 자동 반영됩니다." },
@@ -1660,7 +1817,8 @@ const HELP_CONTENT = {
       { h: "GitHub 연동: 설정 불필요", p: "마스터·심사원과 달리 별도 토큰 입력이 필요 없습니다. 로그인만 하면 자동으로 연결되어 자체점검 내용이 바로 저장·공유됩니다(\"GitHub 연동 설정\" 버튼도 보이지 않습니다)." },
     ] },
     { title: "자동 배정 & 로그인", items: [
-      { h: "PM 이름 = 로그인 이름", p: "프로젝트의 PM 이름으로 현장심사원 계정이 자동 등록됩니다(초기 비밀번호 1234). 같은 이름이 PM인 프로젝트가 여러 개면 모두 접근할 수 있고, 마스터·심사원이 특정 프로젝트에 추가로 배정해줄 수도 있습니다." },
+      { h: "PM 이름 = 로그인 이름", p: "프로젝트의 PM 이름으로 현장심사원 계정이 자동 등록됩니다(초기 비밀번호 1234). 같은 이름이 PM인 프로젝트가 여러 개면 모두 접근할 수 있고, 마스터·심사원이 특정 프로젝트에 추가로 배정해줄 수도 있습니다. 또한 수행부서가 \"현장심사원 등록 요청\"을 넣고 심사원·마스터가 승인한 경우에도 같은 방식(초기 비밀번호 1234)으로 계정이 만들어집니다." },
+      { h: "🔑 내 계정 – 비밀번호 변경", p: "초기 비밀번호(1234)로 처음 접속했다면, 좌측 메뉴 \"내 계정\"에서 반드시 본인 비밀번호로 변경해 주세요." },
       { h: "담당 프로젝트가 1개인 경우", p: "로그인 즉시 해당 프로젝트의 자체점검 체크리스트가 바로 열립니다." },
       { h: "담당 프로젝트가 여러 개인 경우", p: "로그인하면 담당 프로젝트 목록이 먼저 나타나며, 각 프로젝트의 자체점검현황(미실시/진행중/완료)을 확인하고 원하는 프로젝트를 골라 들어갈 수 있습니다." },
     ] },
@@ -1687,6 +1845,10 @@ const HELP_CONTENT = {
     { title: "접속 & 검색", items: [
       { h: "별도 계정 불필요", p: "화면을 열면 기본적으로 \"수행부서 조회\" 모드로 시작되며, 로그인 없이 바로 이용할 수 있습니다." },
       { h: "프로젝트 검색", p: "프로젝트명으로 검색해 원하는 프로젝트를 빠르게 찾고, \"프로젝트 평가 보기\" 버튼으로 상세 결과를 엽니다(아직 완료된 심사가 없으면 버튼이 비활성화됩니다)." },
+    ] },
+    { title: "🙋 현장심사원 등록 요청", items: [
+      { h: "요청 방법", p: "좌측 사이드바의 \"🙋 현장심사원 등록 요청\" 버튼을 누르면 대상 프로젝트·부서명·요청자(등록될 이름)를 입력하는 창이 뜹니다. \"신청완료\"를 누르면 요청이 접수되고, 심사원 또는 마스터가 승인해야만 그 시점에 실제 계정이 생성됩니다(자동으로 바로 만들어지지 않습니다)." },
+      { h: "초기 비밀번호 안내", p: "등록 완료 시 초기 비밀번호는 1234로 자동 설정됩니다. 등록된 분이 처음 접속하면 반드시 \"내 계정\" 메뉴에서 비밀번호를 변경해야 합니다." },
     ] },
     { title: "결과 확인 범위", items: [
       { h: "정식 심사 종합 결과", p: "참여한 모든 심사원의 체크리스트 점수·KPI·종합점수·지적사항을 자동으로 종합(평균)해 보여줍니다. 심사원가 한 명이든 여러 명이든 항상 최신 완료 결과를 기준으로 계산됩니다." },
@@ -1910,6 +2072,8 @@ function openLoginModal(){
         if(!getGithubPersonalConfig().token){
           showToast('마스터는 본인 GitHub 토큰을 입력해야 데이터가 저장·공유됩니다.');
           setTimeout(openGithubSettingsModal, 400);
+        } else if(fieldAuditorRequests.some(r=>r.status==='pending')){
+          setTimeout(openFieldApprovalModal, 400);
         }
       } else { document.getElementById('loginError').textContent='비밀번호가 올바르지 않습니다.'; }
       return;
@@ -1920,12 +2084,15 @@ function openLoginModal(){
       if(!getGithubPersonalConfig().token){
         showToast('심사원은 본인 GitHub 토큰을 입력해야 데이터가 저장·공유됩니다.');
         setTimeout(openGithubSettingsModal, 400);
+      } else if(fieldAuditorRequests.some(r=>r.status==='pending')){
+        setTimeout(openFieldApprovalModal, 400);
       }
       return;
     }
     const facc = userAccounts.fieldAuditors.find(a=>a.name===id && a.password===pw);
     if(facc){
       role='field'; loggedInName=facc.name; fieldProjectId=facc.projectId; fieldSelectedProjectId=null; authRole='field'; authName=facc.name; authProjectId=facc.projectId; saveSessionLocal(); root.innerHTML=''; applyRoleUI(); showToast(`${facc.name}님(현장심사원)으로 로그인되었습니다`);
+      if(facc.password==='1234') setTimeout(openDefaultPasswordNotice, 350);
     } else {
       document.getElementById('loginError').textContent='이름 또는 비밀번호가 올바르지 않습니다. (계정이 없다면 심사원에게 등록을 요청하세요)';
     }
@@ -1957,6 +2124,9 @@ function applyRoleUI(){
   document.getElementById('newAuditBtn').style.display = isAuditorSide? 'block':'none';
   const manualSaveBtn = document.getElementById('manualSaveBtn');
   if(manualSaveBtn) manualSaveBtn.style.display = (isAuditorSide || isField) ? 'block' : 'none';
+  const fieldReqBtn = document.getElementById('fieldRequestBtn');
+  if(fieldReqBtn) fieldReqBtn.style.display = isDept ? 'block' : 'none';
+  updateFieldRequestNotiButton();
   // GitHub 연동 설정은 본인 토큰을 입력해야 하는 마스터/심사원만 누를 수 있게 하고,
   // 현장심사원/수행부서는 자동 토큰으로 이미 연결되어 있으므로 버튼을 숨깁니다.
   updateGithubButtonState(isAuditorSide);
@@ -2714,7 +2884,8 @@ function renderMyAccountPage(){
       if(facc) facc.password = v;
     }
     document.getElementById('myPwInput').value='';
-    showToast('비밀번호가 변경되었습니다. 저장을 눌러야 유지됩니다.');
+    scheduleAutoSave();
+    showToast('비밀번호가 변경되었습니다.');
   };
 }
 
@@ -2972,7 +3143,7 @@ function renderHiddenColsBox(){
 function renderProjectsPage(){
   const readOnlyViewer = (role==='dept' || role==='field');
   document.getElementById('bulkDeleteBtn').style.display = role==='master' ? 'inline-block' : 'none';
-  ['addProjectBtn','addColumnBtn','projSaveBtn'].forEach(id=>{
+  ['addProjectBtn','addColumnBtn','projSaveBtn','showHiddenColsBtn','excelUploadBtn','pasteImportBtn','exportDataBtn','importDataBtn'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = readOnlyViewer ? 'none' : 'inline-block';
   });
@@ -3471,6 +3642,8 @@ function bindNav(){
     await persistAll();
     showToast('전체 데이터를 저장했습니다. 모든 직원이 새로고침하면 이 내용을 볼 수 있습니다.');
   });
+  document.getElementById('fieldRequestBtn').addEventListener('click', openFieldRequestModal);
+  document.getElementById('fieldRequestNotiBtn').addEventListener('click', openFieldApprovalModal);
   document.getElementById('projSaveBtn').addEventListener('click', async ()=>{
     if(autoSaveTimer){ clearTimeout(autoSaveTimer); autoSaveTimer=null; }
     const ind = document.getElementById('projSaveIndicator');
