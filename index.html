@@ -445,7 +445,7 @@
       <div class="title-row"><div><h1>심사 항목 <span class="accent">관리</span></h1><div class="subtitle">영역·코드·세부항목·산출물(예시)·ISO조항 수정, 항목 추가/순서 변경, 필수 산출물·가림 지정 — 심사원만 수정 가능</div></div></div>
       <div class="card">
         <div class="hint">필수로 표시한 항목은 "새 심사 시작" 시 확인 목록에 표시되며, N/A를 제외한 점수가 3점 이상이면 KPI의 <b>표준화율</b> 항목에 "작성된 산출물"로 자동 산정됩니다. 2점 이하 항목은 자동으로 프로젝트 지적사항이 됩니다. <b>항목가림</b>에 체크하면 데이터는 남지만 실제 평가 화면에는 표시되지 않습니다.</div>
-        <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;"><button class="btn primary" id="addTmplRowBtn">+ 심사 항목 추가</button><button class="btn" id="tmplSaveBtn">💾 저장</button><span id="tmplSaveIndicator" style="font-size:12px;color:var(--ink-soft);"></span></div>
+        <div style="margin-bottom:10px;display:flex;align-items:center;gap:12px;"><button class="btn primary" id="addTmplRowBtn">+ 심사 항목 추가</button><button class="btn" id="tmplSaveBtn">💾 저장</button><button class="btn danger" id="tmplResetDefaultsBtn">⚙️ 앱 기본 항목으로 초기화</button><span id="tmplSaveIndicator" style="font-size:12px;color:var(--ink-soft);"></span></div>
         <table>
           <thead><tr>
             <th style="width:54px;">순서</th><th style="width:50px;">필수</th><th style="width:60px;">항목가림</th><th style="width:14%;">영역</th><th style="width:64px;">코드</th>
@@ -1597,6 +1597,7 @@ const HELP_CONTENT = {
     { title: "심사 항목 관리", items: [
       { h: "항목 편집", p: "영역·코드·세부항목·산출물·ISO조항을 수정하고 ▲▼로 순서를 바꿀 수 있습니다. 필수(★) 표시는 KPI 표준화율에 자동 반영됩니다." },
       { h: "항목가림", p: "삭제 대신 \"항목가림\"으로 처리하면 데이터는 남기고 화면에서만 제외됩니다. 모든 변경은 즉시 저장되어 전체 심사원 화면에 자동 반영됩니다." },
+      { h: "⚙️ 앱 기본 항목으로 초기화", p: "새 버전의 앱 파일로 교체했는데도 심사 항목 내용이 안 바뀐다면, 이미 GitHub에 예전 항목이 저장되어 있어서 그 값을 계속 불러오기 때문입니다. 이 버튼을 누르면 GitHub에 저장된 내용을 지우고 지금 이 앱 파일에 내장된 최신 기본 항목(31개)으로 완전히 교체해서 저장합니다. 지금까지 직접 수정한 내용은 모두 사라지니 신중하게 사용하세요." },
     ] },
     { title: "프로젝트 목록 & 전용 권한", items: [
       { h: "프로젝트 등록", p: "수주번호·PM·일정 등을 등록하고, 컬럼 순서·너비를 자유롭게 편집하며, 엑셀 업로드·붙여넣기로 일괄 등록할 수 있습니다." },
@@ -3445,6 +3446,18 @@ function bindNav(){
     await persistAll();
     if(ind){ ind.textContent = '✓ 모든 심사원 화면에 저장됨'; ind.style.color = 'var(--ok)'; }
     showToast('심사 항목을 저장했습니다.');
+  });
+  document.getElementById('tmplResetDefaultsBtn').addEventListener('click', async ()=>{
+    if(!confirm('현재 GitHub에 저장된 심사 항목을 전부 지우고, 이 앱 파일에 들어있는 최신 기본 항목(31개)으로 되돌리시겠습니까?\n\n지금까지 직접 수정하신 내용(항목 추가/삭제/순서변경/ISO조항 수정 등)은 모두 사라지고, 앱 코드에 내장된 기본값으로 완전히 교체됩니다. 이 작업은 되돌릴 수 없습니다.')) return;
+    template = defaultTemplate();
+    if(autoSaveTimer){ clearTimeout(autoSaveTimer); autoSaveTimer=null; }
+    if(typeof _tmplSaveTimer !== 'undefined'){ clearTimeout(_tmplSaveTimer); }
+    const ind = document.getElementById('tmplSaveIndicator');
+    if(ind){ ind.textContent = '초기화하는 중...'; ind.style.color = 'var(--ink-soft)'; }
+    renderTemplatePage();
+    await persistAll();
+    if(ind){ ind.textContent = '✓ 기본 항목으로 초기화되어 모든 심사원 화면에 저장됨'; ind.style.color = 'var(--ok)'; }
+    showToast('심사 항목을 이 앱의 최신 기본값(31개)으로 초기화하고 저장했습니다.');
   });
   document.getElementById('roleAuditorBtn').addEventListener('click', ()=>{
     if(isAuditorSide()) return;
