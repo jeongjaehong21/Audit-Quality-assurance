@@ -326,7 +326,7 @@
     </div>
     <div class="nav" id="navField" style="display:none;">
       <button data-page="audit" data-fieldmode="own" class="active">📋 내 자체점검</button>
-      <button data-page="deptProjects" data-fieldmode="browse">🔍 전체 프로젝트 보기(수행부서 화면)</button>
+      <button data-page="deptProjects" data-fieldmode="browse">🔍 평가 진행현황 보기</button>
       <button data-page="projects" data-fieldmode="readonly">🗂 프로젝트 목록 (열람)</button>
       <button data-page="template" data-fieldmode="readonly">🛠 심사 항목 관리 (열람)</button>
       <button data-page="myAccount">🔑 내 계정</button>
@@ -475,7 +475,7 @@
     <div id="page-overview" style="display:none;">
       <div class="title-row"><div><h1>프로젝트 <span class="accent">심사결과 현황</span></h1><div class="subtitle" id="overviewSubtitle">저장된 모든 심사 결과를 한 화면에서 비교합니다. 행을 클릭하면 해당 심사로 이동합니다.</div></div></div>
       <div class="card">
-        <div class="proj-toolbar"><input type="text" id="projSearchOverview" placeholder="🔍 프로젝트명 검색" style="max-width:220px;padding:8px 10px;border:1px solid var(--line);border-radius:3px;"></div>
+        <div class="proj-toolbar"><input type="text" id="projSearchOverview" placeholder="🔍 프로젝트명 검색" style="max-width:220px;padding:8px 10px;border:1px solid var(--line);border-radius:3px;"><button class="btn gold" id="exportResultsExcelBtn">⬇ 심사결과 엑셀 추출</button></div>
         <table class="ov-table">
           <thead><tr>
             <th>심사번호</th><th>회차</th><th>평가유형</th><th>프로젝트명</th><th>심사일자</th><th>평가자</th><th>완료일시</th>
@@ -540,7 +540,7 @@
           <span><span class="dot" style="background:#8994a8"></span>N/A 해당없음</span>
           <span><span class="req-star">★</span>필수 산출물</span>
         </div>
-        <div id="selfCheckChangesBox" style="display:none;" class="card"></div>
+        <div id="selfCheckChangesBox" style="display:none;background:var(--warn-bg);border:1px solid var(--line);border-left:4px solid var(--warn);" class="card"></div>
         <div id="checklistZones"></div>
       </div>
 
@@ -593,7 +593,7 @@
           <div class="hint">2점 이하로 평가된 항목을 지적사항으로 표시합니다. 최신 회차에서 평균 3점 이상이면 "시정완료"로 자동 전환되며, KPI 시정조치 이행율(전체 지적 건수)은 항상 전체 심사원를 합산한 값으로 계산됩니다.</div>
           <div class="hint" id="findingScopeNote" style="font-weight:700;color:var(--navy);"></div>
           <table>
-            <thead><tr><th style="width:8%;">영역</th><th style="width:14%;">세부항목</th><th style="width:20%;">지적내용(최신 평가내역)</th><th style="width:10%;">최초 지적 회차</th><th style="width:14%;">최초 지적 점수(심사원)</th><th style="width:12%;">최신 회차 점수</th><th style="width:10%;">상태</th></tr></thead>
+            <thead><tr><th style="width:7%;">영역</th><th style="width:12%;">세부항목</th><th style="width:17%;">지적내용(최신 평가내역)</th><th style="width:8%;">최초 지적 회차</th><th style="width:11%;">최초 지적 점수(심사원)</th><th style="width:9%;">최신 회차 점수</th><th style="width:8%;">상태</th><th style="width:9%;">조치담당자</th><th style="width:9%;">조치기한</th><th style="width:10%;">재확인일</th></tr></thead>
             <tbody id="findingsBody"></tbody>
           </table>
           <div class="finding-summary" id="findingSummary"></div>
@@ -901,14 +901,15 @@ const githubStorage = {
   async set(key, value){
     if(!githubIssueCache) await ghLoadIssueCache();
     const rec = githubIssueCache[key];
+    let stored;
     if(rec){
-      await ghApi(`/issues/${rec.number}`, { method:'PATCH', body: JSON.stringify({ body: value }) });
-      rec.body = value;
+      stored = await ghApi(`/issues/${rec.number}`, { method:'PATCH', body: JSON.stringify({ body: value }) });
+      rec.body = stored.body;
     } else {
-      const created = await ghApi(`/issues`, { method:'POST', body: JSON.stringify({ title:`[QA_DATA] ${key}`, body:value, labels:[GITHUB_DATA_LABEL] }) });
-      githubIssueCache[key] = { number: created.number, body: value };
+      stored = await ghApi(`/issues`, { method:'POST', body: JSON.stringify({ title:`[QA_DATA] ${key}`, body:value, labels:[GITHUB_DATA_LABEL] }) });
+      githubIssueCache[key] = { number: stored.number, body: stored.body };
     }
-    return {key, value, shared:true};
+    return {key, value: stored.body, shared:true};
   }
 };
 
@@ -1019,6 +1020,7 @@ let userAccounts = { masterPassword: 'admin', auditors: [], fieldAuditors: [] };
 let fieldAssignments = []; // [{name, projectId}] — explicit extra assignments (a project can have more than one field auditor, beyond PM name matching)
 let fieldExclusions = []; // [{name, projectId}] — removes a PM-auto-matched auditor's access to one specific project (without changing the PM field itself)
 let fieldAuditorRequests = []; // [{id, projectId, projectName, dept, requester, createdAt, seen}] — 수행부서가 제출한 현장심사원 등록 요청(알림용)
+let findingTracking = {}; // key: `${projectId}:${itemId}` -> {assignee, dueDate, recheckDate} — 지적사항 후속조치 추적
 let audits = [];
 let projects = [];
 let projectColumnDefs = PROJECT_FIELDS_BASE.map(f=>({...f, builtin:true})); // order+width+label, includes builtin & custom columns
@@ -1137,14 +1139,15 @@ async function loadAll(){
   if(!storageBackendAvailable()){ return; } // no built-in persistence — use 내보내기/가져오기(JSON) instead
   try{ const r=await storage.get('checklist_template_v2', true); if(r&&r.value) template=JSON.parse(r.value); }catch(e){}
   template.forEach(t=>{ if(t.hidden===undefined) t.hidden=false; });
-  try{ const r=await storage.get('audits_index_v3', true); if(r&&r.value) audits=JSON.parse(r.value); }catch(e){ audits=[]; }
+  try{ const r=await storage.get('audits_index_v3', true); if(r&&r.value) audits=JSON.parse(r.value); auditsHashAtLoad = hashStr(r&&r.value ? r.value : ''); }catch(e){ audits=[]; }
   try{
     const r2=await storage.get('kpi_settings_v2', true);
     if(r2&&r2.value){ const parsed=JSON.parse(r2.value);
       if(parsed.gradeCriteria) settings.gradeCriteria=parsed.gradeCriteria;
       if(parsed.overallBands) settings.overallBands=parsed.overallBands;
       if(parsed.defaultFinalWeights) settings.defaultFinalWeights=parsed.defaultFinalWeights;
-      if(parsed.authPassword) userAccounts.masterPassword = parsed.authPassword; /* legacy migration */ }
+      if(parsed.authPassword) userAccounts.masterPassword = parsed.authPassword; /* legacy migration */
+      findingTracking = parsed.findingTracking || {}; }
   }catch(e){}
   try{
     const r4=await storage.get('user_accounts_v1', true);
@@ -1185,6 +1188,34 @@ async function loadAll(){
  *  persistAll()이 실행되어 GitHub에 저장되고 모든 직원과 공유됩니다. 여러 번 연속으로
  *  호출돼도(예: 타이핑 중) 마지막 호출 기준으로 한 번만 저장합니다(디바운스). */
 let autoSaveTimer = null;
+function hashStr(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return h; }
+let auditsHashAtLoad = null;
+/** 저장 직전, 다른 사용자가 그 사이에 이미 저장했는지(=내가 불러온 이후 데이터가 바뀌었는지) 확인합니다.
+ *  충돌이 감지되면 덮어쓰지 않고 경고합니다. */
+async function checkAuditsConflict(){
+  if(!githubConfigReady() || auditsHashAtLoad===null) return false;
+  try{
+    if(!githubIssueCache) await ghLoadIssueCache();
+    const rec = githubIssueCache['audits_index_v3'];
+    if(!rec) return false;
+    const fresh = await ghApi(`/issues/${rec.number}`); // 캐시를 거치지 않고 GitHub에서 직접 최신 값을 확인합니다
+    const remoteHash = hashStr(fresh&&fresh.body ? fresh.body : '');
+    return remoteHash !== auditsHashAtLoad;
+  }catch(e){ return false; }
+}
+function showConflictWarning(){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:420px;text-align:center;">
+    <h3 style="margin-top:0;">⚠️ 저장 충돌 감지</h3>
+    <div style="font-size:13px;line-height:1.6;margin:12px 0;">
+      다른 사용자가 방금 심사 데이터를 저장했습니다.<br>
+      지금 저장하면 그 내용을 덮어쓸 수 있습니다.<br><br>
+      <b>새로고침 후 다시 시도해 주세요.</b>
+    </div>
+    <button class="btn primary" id="conflictOkBtn" style="width:100%;">확인</button>
+  </div></div>`;
+  document.getElementById('conflictOkBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
+}
 function scheduleAutoSave(){
   if(autoSaveTimer) clearTimeout(autoSaveTimer);
   const indicator = document.getElementById('autoSaveIndicator');
@@ -1195,13 +1226,28 @@ function scheduleAutoSave(){
     if(indicator){ indicator.textContent = '✓ 저장됨 · 모든 직원과 공유됨'; setTimeout(()=>{ indicator.style.display='none'; }, 2500); }
   }, 700);
 }
+let persistAllRunning = false;
+let persistAllQueued = false;
 async function persistAll(){
   if(!storageBackendAvailable()){ showToast('이 환경에는 자동 저장소가 없습니다 — "데이터 내보내기(JSON)"로 백업하세요.'); return; }
-  try{ await storage.set('checklist_template_v2', JSON.stringify(template), true); }catch(e){console.error(e); showToast('저장 중 오류: '+e.message);}
-  try{ await storage.set('audits_index_v3', JSON.stringify(audits), true); }catch(e){console.error(e); showToast('저장 중 오류: '+e.message);}
-  try{ await storage.set('kpi_settings_v2', JSON.stringify(settings), true); }catch(e){console.error(e);}
-  try{ await storage.set('projects_v2', JSON.stringify({list:projects, columnDefs:projectColumnDefs, fixedColWidths}), true); }catch(e){console.error(e);}
-  try{ await storage.set('user_accounts_v1', JSON.stringify(Object.assign({}, userAccounts, {fieldAssignments, fieldExclusions, fieldAuditorRequests})), true); }catch(e){console.error(e);}
+  if(persistAllRunning){ persistAllQueued = true; return; } // 이미 저장 중이면 자기 자신과 경합하지 않도록 대기 후 한 번만 재실행
+  persistAllRunning = true;
+  try{
+    if(await checkAuditsConflict()){ showConflictWarning(); return; }
+    try{ await storage.set('checklist_template_v2', JSON.stringify(template), true); }catch(e){console.error(e); showToast('저장 중 오류: '+e.message);}
+    try{
+      const rec = await storage.set('audits_index_v3', JSON.stringify(audits), true);
+      // 보낸 값이 아니라 GitHub가 실제로 저장한 뒤 돌려준 값을 기준으로 삼아야
+      // 줄바꿈 정규화 등으로 인한 오탐(false positive) 충돌 감지를 막을 수 있습니다.
+      auditsHashAtLoad = hashStr(rec && rec.value ? rec.value : JSON.stringify(audits));
+    }catch(e){console.error(e); showToast('저장 중 오류: '+e.message);}
+    try{ await storage.set('kpi_settings_v2', JSON.stringify(Object.assign({}, settings, {findingTracking})), true); }catch(e){console.error(e);}
+    try{ await storage.set('projects_v2', JSON.stringify({list:projects, columnDefs:projectColumnDefs, fixedColWidths}), true); }catch(e){console.error(e);}
+    try{ await storage.set('user_accounts_v1', JSON.stringify(Object.assign({}, userAccounts, {fieldAssignments, fieldExclusions, fieldAuditorRequests})), true); }catch(e){console.error(e);}
+  } finally {
+    persistAllRunning = false;
+    if(persistAllQueued){ persistAllQueued = false; persistAll(); }
+  }
 }
 function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 /** 사이드바 메뉴처럼 특정 버튼 옆에 붙여서 짧게 안내 문구를 보여줍니다(화면 하단 토스트 대신). */
@@ -1225,6 +1271,55 @@ function showInlineMenuNotice(anchorEl, msg){
 }
 
 /* ================= Export / Import (manual backup — works anywhere, incl. outside Claude) ================= */
+function exportResultsToExcel(){
+  if(typeof XLSX==='undefined'){ showToast('엑셀 라이브러리를 불러오지 못했습니다.'); return; }
+  const completed = audits.filter(a=>a.completed);
+  if(!completed.length){ showToast('완료된 심사가 없습니다.'); return; }
+  const summaryRows = completed.map(a=>{
+    const summary = computeAuditSummary(a);
+    const proj = projects.find(p=>p.id===a.projectId);
+    return {
+      '프로젝트명': proj?proj.name:a.project||'',
+      '회차': a.round||1,
+      '평가유형': a.type||'',
+      '평가자': a.auditor||'',
+      '심사일자': a.date||'',
+      '완료일시': a.completedAt? new Date(a.completedAt).toLocaleString('ko-KR') : '',
+      '절차이행 점수': summary.processContrib!==undefined? summary.processContrib.toFixed(1) : '',
+      'KPI 점수': summary.kpiContrib!==undefined? summary.kpiContrib.toFixed(1) : '',
+      '최종 종합점수': summary.finalScore.toFixed(1),
+      '최종 등급': summary.finalBand? summary.finalBand.g : '',
+    };
+  });
+  const findingRows = [];
+  completed.forEach(a=>{
+    const proj = projects.find(p=>p.id===a.projectId);
+    const findings = computeFindings(a.projectId, a.auditor);
+    findings.forEach(f=>{
+      const trackKey = a.projectId+':'+f.item.id;
+      const track = findingTracking[trackKey] || {};
+      findingRows.push({
+        '프로젝트명': proj?proj.name:a.project||'',
+        '영역': zoneLabel(f.item.zone),
+        '세부항목': f.item.name,
+        'ISO 9001 조항': f.item.iso||'',
+        '지적내용': f.latestRemark || '',
+        '최초 지적 회차': f.flaggedRound,
+        '최신 회차 점수': f.avgLatest!==null? f.avgLatest.toFixed(1) : '',
+        '상태': f.resolved?'시정완료':'미조치',
+        '조치담당자': track.assignee||'',
+        '조치기한': track.dueDate||'',
+        '재확인일': track.recheckDate||'',
+      });
+    });
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), '심사결과 요약');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(findingRows), '지적사항');
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  XLSX.writeFile(wb, `심사결과_${today}.xlsx`);
+  showToast('심사결과를 엑셀로 내보냈습니다.');
+}
 function exportAllData(){
   const payload = { template, audits, settings, projects, projectColumnDefs, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
@@ -1348,28 +1443,42 @@ function openLatestSelfCheck(projectId){
   combinedViewProjectId = null; currentId = latest.id;
   showPage('audit');
 }
-function computeSelfCheckChanges(a){
-  // compares this round's scores/remarks against the immediately preceding round for the SAME auditor
-  // (works for both formal 재심사 and 현장심사원 자체점검 재점검 — the "변경내역/보완사항" box)
-  if(!a || (a.round||1)<=1) return [];
-  let prev = null;
-  if(a.kind==='selfcheck'){
-    const rounds = getSelfCheckRoundsFor(a.projectId, a.auditor);
-    prev = rounds.find(r=>(r.round||1)===(a.round||1)-1);
-  } else {
-    const rounds = getProjectAudits(a.projectId).filter(x=>x.auditor===a.auditor).sort((x,y)=>(x.round||1)-(y.round||1));
-    prev = rounds.find(r=>(r.round||1)===(a.round||1)-1);
-  }
-  if(!prev) return [];
+function diffRounds(prev, cur){
   const changes = [];
   template.filter(t=>!t.hidden).forEach(t=>{
     const prevRec = prev.scores[t.id] || {score:'',remark:''};
-    const curRec = a.scores[t.id] || {score:'',remark:''};
+    const curRec = cur.scores[t.id] || {score:'',remark:''};
     if(prevRec.score!==curRec.score || prevRec.remark!==curRec.remark){
       changes.push({item:t, prevScore:prevRec.score, curScore:curRec.score, prevRemark:prevRec.remark, curRemark:curRec.remark});
     }
   });
   return changes;
+}
+function getAllRoundsFor(a){
+  return a.kind==='selfcheck'
+    ? getSelfCheckRoundsFor(a.projectId, a.auditor).sort((x,y)=>(x.round||1)-(y.round||1))
+    : getProjectAudits(a.projectId).filter(x=>x.auditor===a.auditor).sort((x,y)=>(x.round||1)-(y.round||1));
+}
+function computeSelfCheckChanges(a){
+  // compares this round's scores/remarks against the immediately preceding round for the SAME auditor
+  // (works for both formal 재심사 and 현장심사원 자체점검 재점검 — the "변경내역/보완사항" box)
+  if(!a || (a.round||1)<=1) return [];
+  const rounds = getAllRoundsFor(a);
+  const prev = rounds.find(r=>(r.round||1)===(a.round||1)-1);
+  if(!prev) return [];
+  return diffRounds(prev, a);
+}
+/** 최초 회차부터 현재 회차까지, 연속된 회차 쌍마다의 변경내역을 전부 모아 반환합니다.
+ *  예: 1→2차, 2→3차, 3→4차 각각의 변경사항을 순서대로 담은 배열. */
+function computeAllRoundChanges(a){
+  if(!a || (a.round||1)<=1) return [];
+  const rounds = getAllRoundsFor(a).filter(r=>(r.round||1)<=(a.round||1));
+  const segments = [];
+  for(let i=1;i<rounds.length;i++){
+    const prev = rounds[i-1], cur = rounds[i];
+    segments.push({fromRound:prev.round||1, toRound:cur.round||1, changes:diffRounds(prev, cur)});
+  }
+  return segments;
 }
 function ensureFieldAuditorForPM(p, silent){
   const name = (p.pm||'').trim();
@@ -1419,7 +1528,7 @@ function openFieldRequestModal(){
     <input type="text" id="freqDept" placeholder="예: 개발1팀" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
     <label style="font-size:12px;font-weight:600;">요청자(현장심사원으로 등록될 이름)</label>
     <input type="text" id="freqRequester" placeholder="예: 홍길동" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin:4px 0 10px;">
-    <div class="hint" style="margin-bottom:10px;">승인이 완료되면 초기 비밀번호 <b>1234</b>로 계정이 만들어집니다. 최초 접속 후 반드시 "내 계정"에서 비밀번호를 변경해 주세요.</div>
+    <div class="hint" style="margin-bottom:10px;">심사원 또는 마스터가 승인해야 계정이 생성됩니다.</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;">
       <button class="btn" id="freqCancelBtn">취소</button>
       <button class="btn primary" id="freqSubmitBtn">신청완료</button>
@@ -1453,7 +1562,7 @@ function openFieldRequestModal(){
       <div style="font-size:13px;line-height:1.6;margin:12px 0;">
         <b>${escapeHtml(requester)}</b>님의 <b>${escapeHtml(proj.name||'')}</b> 프로젝트 현장심사원 등록 요청이 접수되었습니다.<br><br>
         심사원 또는 마스터의 <b>승인 후 계정이 생성</b>됩니다.<br>
-        승인되면 초기 비밀번호 <b>1234</b>로 로그인할 수 있으며, 최초 접속 후 반드시 <b>"내 계정"</b>에서 비밀번호를 변경해 주세요.
+        승인이 완료되면 로그인 정보는 담당 심사원에게 별도로 확인해 주세요.
       </div>
       <button class="btn primary" id="freqDoneBtn" style="width:100%;">확인</button>
     </div></div>`;
@@ -1462,8 +1571,61 @@ function openFieldRequestModal(){
 }
 /** 심사원/마스터 로그인 시 자동으로(또는 알림 버튼 클릭 시) 열리는 승인 창.
  *  요청별로 승인/거절을 선택해야 하며, 승인해야만 그 시점에 계정이 만들어집니다. */
-/** 초기 비밀번호(1234)를 아직 바꾸지 않은 현장심사원에게 로그인 직후 보여주는 안내창입니다. */
-function openDefaultPasswordNotice(){
+/** 조치담당자로 지정된 미조치 지적사항이 있으면 알림을 띄웁니다. 조치기한 임박도에 따라 재알림 주기가 다릅니다:
+ *  기한 없음/여유(3일 초과)=6시간, 3일 이내 임박=2시간, 기한 지남(연체)=로그인마다. */
+function maybeShowAssigneeNotice(name, onDone){
+  const items = [];
+  projects.forEach(p=>{
+    const findings = computeFindings(p.id);
+    findings.forEach(f=>{
+      if(f.resolved) return;
+      const track = findingTracking[p.id+':'+f.item.id];
+      if(track && track.assignee && track.assignee.trim().toLowerCase()===name.trim().toLowerCase()){
+        items.push({project:p.name||'(제목없음)', item:f.item.name, due:track.dueDate||''});
+      }
+    });
+  });
+  if(!items.length){ if(onDone) onDone(); return; }
+
+  const now = Date.now();
+  const oneDay = 24*60*60*1000;
+  let urgency = 'normal'; // normal(6h) / soon(2h) / overdue(항상)
+  items.forEach(it=>{
+    if(!it.due) return;
+    const dueTime = new Date(it.due+'T00:00:00').getTime();
+    if(isNaN(dueTime)) return;
+    if(dueTime < now) urgency = 'overdue';
+    else if(dueTime - now <= 3*oneDay && urgency!=='overdue') urgency = 'soon';
+  });
+  const intervalMs = urgency==='overdue' ? 0 : (urgency==='soon' ? 2*60*60*1000 : 6*60*60*1000);
+
+  const seenKey = 'qa_assignee_notice_seen_'+name;
+  const lastShown = parseInt(localStorage.getItem(seenKey)||'0');
+  if(intervalMs>0 && (now-lastShown)<intervalMs){ if(onDone) onDone(); return; }
+  localStorage.setItem(seenKey, String(now));
+
+  const root = document.getElementById('modalRoot');
+  const rows = items.map(it=>`<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--line);font-size:11.5px;">${escapeHtml(it.project)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--line);font-size:11.5px;">${escapeHtml(it.item)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--line);font-size:11px;color:var(--ink-soft);">${escapeHtml(it.due||'-')}</td>
+    </tr>`).join('');
+  root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:520px;">
+    <h3 style="margin-top:0;">📌 담당 지적사항 안내</h3>
+    <div class="hint" style="margin-bottom:10px;">현재 조치담당자로 지정된 미조치 지적사항이 ${items.length}건 있습니다.</div>
+    <div style="max-height:280px;overflow:auto;">
+      <table style="width:100%;border-collapse:collapse;">
+        <tr style="background:var(--panel);"><th style="padding:6px 8px;text-align:left;font-size:11px;">프로젝트</th><th style="padding:6px 8px;text-align:left;font-size:11px;">지적항목</th><th style="padding:6px 8px;text-align:left;font-size:11px;">조치기한</th></tr>
+        ${rows}
+      </table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button class="btn primary" id="assigneeNoticeCloseBtn">확인</button>
+    </div>
+  </div></div>`;
+  document.getElementById('assigneeNoticeCloseBtn').addEventListener('click', ()=>{ root.innerHTML=''; if(onDone) onDone(); });
+}
+function openDefaultPasswordNotice(onDone){
   const root = document.getElementById('modalRoot');
   root.innerHTML = `<div class="modal-overlay"><div class="modal-box" style="max-width:420px;text-align:center;">
     <h3 style="margin-top:0;">🔐 비밀번호 변경 안내</h3>
@@ -1476,10 +1638,11 @@ function openDefaultPasswordNotice(){
       <button class="btn primary" id="pwNoticeGoBtn" style="flex:1;">지금 변경하기</button>
     </div>
   </div></div>`;
-  document.getElementById('pwNoticeLaterBtn').addEventListener('click', ()=>{ root.innerHTML=''; });
+  document.getElementById('pwNoticeLaterBtn').addEventListener('click', ()=>{ root.innerHTML=''; if(onDone) onDone(); });
   document.getElementById('pwNoticeGoBtn').addEventListener('click', ()=>{
     root.innerHTML='';
     showPage('myAccount');
+    if(onDone) onDone();
   });
 }
 function openFieldApprovalModal(){
@@ -1749,6 +1912,7 @@ const HELP_CONTENT = {
       { h: "페이지별 💾 저장 버튼", p: "프로젝트 목록, 심사 항목 관리 화면 상단에도 그 페이지 전용 저장 버튼이 있습니다. 자동저장을 기다리지 않고 수정 직후 바로 확실하게 저장하고 싶을 때 누르면 됩니다." },
       { h: "다른 사람 화면은 새로고침해야 반영됨", p: "내가 저장한 내용이 GitHub에는 즉시 반영되지만, 이미 화면을 열어둔 다른 직원에게 자동으로 나타나지는 않습니다. 최신 내용을 보려면 그 직원이 새로고침을 해야 합니다." },
       { h: "새로고침해도 최신 내용이 안 보일 때", p: "일반 새로고침(F5)으로는 브라우저에 저장된 예전 화면(캐시)이 그대로 남아있어 최신 내용이 안 보일 수 있습니다. 이때는 \"강력 새로고침\"을 해주세요: PC(Chrome/Edge)에서는 Ctrl + Shift + R(맥은 Cmd + Shift + R), 아이폰 Safari는 주소창 옆 새로고침 아이콘을 길게 눌러 \"캐시 없이 새로고침\"을 선택하면 됩니다." },
+      { h: "저장 충돌 감지", p: "내가 불러온 이후 다른 사람이 이미 심사 데이터를 저장했다면, 저장 시도 시 \"다른 사용자가 방금 저장했습니다\"라는 경고가 뜨고 저장이 취소됩니다(덮어쓰기 방지). 이 경우 새로고침으로 최신 내용을 다시 불러온 뒤 작업을 이어가면 됩니다." },
     ] },
     { title: "GitHub 연동 설정 화면의 저장소 정보", items: [
       { h: "저장소 소유자/이름은 고정값", p: "\"GitHub 연동 설정\" 창의 저장소 소유자(owner)·저장소 이름(repo)은 이 앱에 미리 설정되어 있어 수정할 수 없습니다(회색으로 표시). 데이터가 어디에 저장되는지 확인하는 용도로만 보시고, 실제로 입력해야 하는 것은 본인 Personal Access Token 하나뿐입니다." },
@@ -1779,6 +1943,10 @@ const HELP_CONTENT = {
       { h: "전사 품질보증(QA) 담당자", p: "전사 차원에서 프로젝트 품질 프로세스가 ISO 9001 표준 체크리스트대로 이행되고 있는지 객관적으로 심사하고, KPI 평가와 완료 처리를 통해 최종 승인하는 주체입니다." },
       { h: "GitHub 연동: 본인 토큰 필요", p: "처음 로그인하면 GitHub 연동 설정 창이 자동으로 뜹니다. 본인 Personal Access Token을 입력해야 심사 결과가 저장되고 다른 직원과 공유됩니다." },
     ] },
+    { title: "🔔 수행부서 등록 요청 승인", items: [
+      { h: "로그인 시 자동으로 승인 창이 뜸", p: "수행부서가 \"현장심사원 등록 요청\"을 제출하면, 심사원이 로그인할 때 승인 창이 자동으로 뜹니다(마스터뿐 아니라 심사원도 승인할 수 있습니다). 좌측 \"🔔 신규 등록 요청\" 버튼으로도 언제든 다시 열 수 있습니다." },
+      { h: "승인 / 거절", p: "요청 목록에서 프로젝트·부서명·요청자를 확인하고, \"승인\"을 누르면 그 즉시 초기 비밀번호 1234로 현장심사원 계정이 생성됩니다. \"거절\"을 누르면 계정이 만들어지지 않습니다. 승인된 분이 초기 비밀번호로 처음 로그인하면 앱이 자동으로 비밀번호 변경을 안내합니다." },
+    ] },
     { title: "프로젝트 목록 이용법", items: [
       { h: "심사 열기 / 평가보기", p: "미완료 프로젝트는 \"심사 열기\", 본인이 이미 완료한 프로젝트는 \"평가보기\"로 버튼이 바뀝니다. \"평가보기\"를 누르면 참여한 모든 심사원의 결과를 종합(평균)한 화면이 열립니다." },
       { h: "심사원 이름 클릭", p: "\"내부심사(심사원)\" 컬럼의 이름 배지를 클릭하면 그 사람이 작성한 개별 평가를 바로 열 수 있습니다. 본인 것과 마스터가 아니면 열람만 가능하고 수정은 되지 않습니다." },
@@ -1797,6 +1965,7 @@ const HELP_CONTENT = {
     ] },
     { title: "지적사항 & 재심사 (Ⅳ탭)", items: [
       { h: "지적사항 자동 집계", p: "2점 이하로 평가한 항목이 자동으로 지적사항 목록에 오릅니다. 기본적으로 본인이 평가한 항목만 표시되며, 여러 심사원를 종합한 전체 현황은 수행부서 조회에서 확인할 수 있습니다." },
+      { h: "후속조치 추적 (조치담당자·조치기한·재확인일)", p: "지적사항마다 조치담당자·조치기한·재확인일을 입력할 수 있습니다(마스터·심사원만 수정 가능). 조치담당자는 자유 입력이 아니라 등록된 심사원·현장심사원 계정 중에서 드롭다운으로 선택합니다. 새로 발생한 지적사항은 해당 프로젝트 PM 이름으로 조치담당자가 자동 채워지며, 이후 직접 다른 사람으로 바꿀 수 있습니다." },
       { h: "재심사(다음 회차)", p: "완료된 심사를 다시 열어 \"재심사(다음 회차)\"를 누르면 이전 점수가 참고용으로 복사된 새 회차가 시작됩니다. 이전 회차 대비 바뀐 항목만 변경내역 표로 자동 정리되어 어떤 부분이 개선되었는지 한눈에 확인할 수 있습니다." },
       { h: "완료 심사 삭제", p: "본인이 작성한 심사는 필요 시 \"이 심사 삭제\" 버튼으로 삭제할 수 있으며(완료된 것은 마스터만), 삭제하면 프로젝트 현황의 회차 수도 즉시 갱신됩니다." },
     ] },
@@ -1805,6 +1974,8 @@ const HELP_CONTENT = {
       { h: "Ⅱ. KPI 평가표 입력값 표기 순서", p: "KPI 표의 입력값 열은 \"입력②/①\" 순서로 표시됩니다(투입 순서가 아니라 결과에 가까운 값을 먼저 보이도록 구성)." },
       { h: "Ⅳ. 지적사항 표 구성", p: "영역·세부항목·ISO 9001 조항·평가내역·점수·상태 순으로 표시됩니다. 평가내역에는 어느 심사원이 작성했는지 표시되지 않고 내용만 나오며, \"최초지적(회차)\" 열은 없앴고 \"최근 평균점수\"는 \"점수\"로 이름을 바꿔 간결하게 정리했습니다." },
       { h: "메일 제목·본문 자동 작성", p: "제목은 \"프로젝트명_품질심사결과\"로, 본문은 \"품질파트에서 (프로젝트명) 프로젝트 품질 심사 결과를 알려드립니다\"로 시작해 회차·평가부서·평가일자·최종 종합점수(등급)까지 자동으로 채워집니다." },
+      { h: "정식 심사 vs 자체평가 표시 차이", p: "정식 심사(내부평가 QA)는 PDF·메일에 \"평가부서: 품질파트(QA)\"로 표시되어 개인 이름이 드러나지 않습니다. 반면 현장심사원의 자체평가는 \"부서 / 평가자: OO팀 / 홍길동\"처럼 실제 부서와 평가자 이름이 그대로 표시됩니다." },
+      { h: "⬇ 심사결과 엑셀 추출", p: "\"프로젝트 심사결과 현황\" 화면 상단 버튼으로, 완료된 심사 전체를 엑셀 파일로 내려받을 수 있습니다. \"심사결과 요약\"(프로젝트·회차·점수·등급) 시트와 \"지적사항\"(항목·ISO조항·상태·조치담당자·조치기한·재확인일) 시트가 함께 담깁니다." },
       { h: "첨부는 직접 해야 함", p: "브라우저 보안 정책상 파일을 메일에 자동으로 첨부할 수는 없습니다. 방금 다운로드된 PDF 파일을 열려 있는 메일 창에 끌어다 놓아 첨부한 뒤 발송하면 됩니다." },
     ] },
     { title: "내 계정", items: [
@@ -1818,7 +1989,8 @@ const HELP_CONTENT = {
     ] },
     { title: "자동 배정 & 로그인", items: [
       { h: "PM 이름 = 로그인 이름", p: "프로젝트의 PM 이름으로 현장심사원 계정이 자동 등록됩니다(초기 비밀번호 1234). 같은 이름이 PM인 프로젝트가 여러 개면 모두 접근할 수 있고, 마스터·심사원이 특정 프로젝트에 추가로 배정해줄 수도 있습니다. 또한 수행부서가 \"현장심사원 등록 요청\"을 넣고 심사원·마스터가 승인한 경우에도 같은 방식(초기 비밀번호 1234)으로 계정이 만들어집니다." },
-      { h: "🔑 내 계정 – 비밀번호 변경", p: "초기 비밀번호(1234)로 처음 접속했다면, 좌측 메뉴 \"내 계정\"에서 반드시 본인 비밀번호로 변경해 주세요." },
+      { h: "🔑 내 계정 – 비밀번호 변경", p: "초기 비밀번호(1234)로 로그인하면 \"비밀번호를 변경해 주세요\"라는 안내창이 자동으로 뜹니다. \"지금 변경하기\"를 누르면 바로 \"내 계정\" 화면으로 이동합니다. 이 안내는 비밀번호를 직접 바꾸기 전까지 로그인할 때마다 계속 표시됩니다." },
+      { h: "📌 담당 지적사항 알림", p: "PM으로 로그인 시, 본인이 조치담당자로 지정된 미조치 지적사항이 있으면 프로젝트명·항목명·조치기한을 안내하는 창이 뜹니다(초기 비밀번호 변경 안내가 있다면 그것부터 뜨고, 닫으면 이어서 표시됩니다). 재알림 주기는 조치기한 임박도에 따라 다릅니다: 기한 없음/여유(3일 초과)는 6시간마다, 3일 이내 임박은 2시간마다, 기한이 지난 경우는 로그인할 때마다 표시됩니다." },
       { h: "담당 프로젝트가 1개인 경우", p: "로그인 즉시 해당 프로젝트의 자체점검 체크리스트가 바로 열립니다." },
       { h: "담당 프로젝트가 여러 개인 경우", p: "로그인하면 담당 프로젝트 목록이 먼저 나타나며, 각 프로젝트의 자체점검현황(미실시/진행중/완료)을 확인하고 원하는 프로젝트를 골라 들어갈 수 있습니다." },
     ] },
@@ -1831,16 +2003,16 @@ const HELP_CONTENT = {
       { h: "재점검 시작", p: "완료된 자체점검도 필요하면 다시 열어 \"재점검 시작\"으로 보완할 수 있습니다. 이전 점수가 참고용으로 복사된 새 회차가 시작됩니다." },
       { h: "변경내역 자동 비교", p: "이전 회차 대비 점수가 바뀐 항목만 표로 자동 정리되어, 무엇이 몇 점에서 몇 점으로 개선되었는지와 새 평가내역을 한눈에 확인할 수 있습니다." },
     ] },
-    { title: "다른 프로젝트 열람 & 내 계정", items: [
-      { h: "전체 프로젝트 보기", p: "좌측 메뉴 \"전체 프로젝트 보기\"를 누르면 수행부서 조회 화면과 동일하게 다른 프로젝트의 심사·자체점검 결과를 검색·열람할 수 있습니다(본인 담당이 아니면 읽기 전용). \"내 자체점검\"을 다시 누르면 본인 프로젝트로 돌아옵니다." },
-      { h: "비밀번호 변경", p: "\"내 계정\" 메뉴에서 본인 비밀번호를 직접 변경할 수 있습니다." },
+    { title: "다른 프로젝트 열람", items: [
+      { h: "평가 진행현황 보기", p: "좌측 메뉴 \"평가 진행현황 보기\"를 누르면 수행부서 조회 화면과 동일하게 다른 프로젝트의 심사·자체점검 결과를 검색·열람할 수 있습니다(본인 담당이 아니면 읽기 전용, 누가 평가했는지는 표시되지 않고 종합된 결과만 보입니다). \"내 자체점검\"을 다시 누르면 본인 프로젝트로 돌아옵니다." },
+      { h: "프로젝트 목록 · 심사 항목 관리 (열람)", p: "좌측 메뉴에서 프로젝트 목록과 심사 항목 관리 내용도 확인할 수 있습니다(수정은 불가)." },
     ] },
   ] },
   dept: { label: "수행부서", sections: [
     { title: "역할 정의", items: [
       { h: "실무 집행 부서 (개발팀 · PL, 피심사 조직)", p: "계약된 요구사항에 맞춰 실제로 시스템을 설계·구현하고 인프라를 구축하는 프로젝트 실무 부서(피심사 조직)입니다. 이 화면에서는 심사원·현장심사원이 평가한 품질심사 결과를 실시간으로 열람하며 확인할 수 있습니다." },
       { h: "GitHub 연동: 설정 불필요", p: "로그인 자체가 필요 없는 것처럼, GitHub 연동 설정도 따로 할 필요가 없습니다. 자동으로 연결되어 최신 데이터를 바로 열람할 수 있습니다." },
-      { h: "심사원 전용 메뉴는 회색으로 표시", p: "좌측에 \"프로젝트 목록\", \"심사 항목 관리\" 등 심사원 전용 메뉴가 어떤 기능인지 미리보기 삼아 함께 보이지만, 클릭하면 \"심사원만 작성/열람 할 수 있습니다\"라는 안내만 뜨고 실제로 열리지는 않습니다. 심사원으로 로그인해야 사용할 수 있습니다." },
+      { h: "일부 메뉴는 열람만 가능, 나머지는 회색으로 표시", p: "좌측의 \"프로젝트 목록 (열람)\", \"심사 항목 관리 (열람)\"는 실제로 클릭해 내용을 볼 수 있습니다(수정은 불가). 그 외 \"심사 작성\", \"프로젝트 심사결과 현황\", 계정 관리 등은 회색으로 표시되며 클릭하면 \"심사원만 작성/열람 할 수 있습니다\"라는 안내만 뜨고 열리지 않습니다. 심사원으로 로그인해야 사용할 수 있습니다." },
     ] },
     { title: "접속 & 검색", items: [
       { h: "별도 계정 불필요", p: "화면을 열면 기본적으로 \"수행부서 조회\" 모드로 시작되며, 로그인 없이 바로 이용할 수 있습니다." },
@@ -1848,7 +2020,7 @@ const HELP_CONTENT = {
     ] },
     { title: "🙋 현장심사원 등록 요청", items: [
       { h: "요청 방법", p: "좌측 사이드바의 \"🙋 현장심사원 등록 요청\" 버튼을 누르면 대상 프로젝트·부서명·요청자(등록될 이름)를 입력하는 창이 뜹니다. \"신청완료\"를 누르면 요청이 접수되고, 심사원 또는 마스터가 승인해야만 그 시점에 실제 계정이 생성됩니다(자동으로 바로 만들어지지 않습니다)." },
-      { h: "초기 비밀번호 안내", p: "등록 완료 시 초기 비밀번호는 1234로 자동 설정됩니다. 등록된 분이 처음 접속하면 반드시 \"내 계정\" 메뉴에서 비밀번호를 변경해야 합니다." },
+      { h: "로그인 정보 안내", p: "신청 화면에는 비밀번호가 표시되지 않습니다. 승인이 완료되면 담당 심사원에게 로그인 정보(초기 비밀번호)를 확인해 주세요. 등록된 분이 초기 비밀번호로 처음 로그인하면 앱이 자동으로 비밀번호 변경을 안내합니다." },
     ] },
     { title: "결과 확인 범위", items: [
       { h: "정식 심사 종합 결과", p: "참여한 모든 심사원의 체크리스트 점수·KPI·종합점수·지적사항을 자동으로 종합(평균)해 보여줍니다. 심사원가 한 명이든 여러 명이든 항상 최신 완료 결과를 기준으로 계산됩니다." },
@@ -1856,7 +2028,7 @@ const HELP_CONTENT = {
       { h: "체크리스트 · KPI · 종합평가 · 지적사항", p: "심사원 화면과 동일한 4개 탭(Ⅰ~Ⅳ)을 모두 볼 수 있어, 점수뿐 아니라 어떤 항목이 지적되었고 조치가 완료됐는지도 함께 확인할 수 있습니다." },
     ] },
     { title: "이용 시 참고", items: [
-      { h: "읽기 전용", p: "모든 항목이 읽기 전용이며 점수·평가내역을 수정할 수 없습니다. 데이터 변경이 필요하면 심사원 계정으로 로그인해야 합니다." },
+      { h: "읽기 전용", p: "모든 항목이 읽기 전용이며 점수·평가내역을 수정할 수 없습니다. \"프로젝트 목록\", \"심사 항목 관리\" 열람 화면도 마찬가지로 내용 확인만 가능합니다. 데이터 변경이 필요하면 심사원 계정으로 로그인해야 합니다." },
       { h: "비대상 프로젝트", p: "\"비대상\"으로 지정된 프로젝트는 평가 보기 버튼이 비활성화되어 열람할 내용이 없음을 바로 알 수 있습니다." },
     ] },
   ] },
@@ -1927,7 +2099,7 @@ function buildAuditReportHTML(a){
       <tr><td style="padding:3px 8px;color:#5a6472;width:110px;">프로젝트</td><td style="padding:3px 8px;font-weight:600;">${escapeHtml(a.project||'-')}</td>
           <td style="padding:3px 8px;color:#5a6472;width:110px;">수주번호</td><td style="padding:3px 8px;font-weight:600;">${escapeHtml(a.orderNo||'-')}</td></tr>
       <tr><td style="padding:3px 8px;color:#5a6472;">회차 / 유형</td><td style="padding:3px 8px;font-weight:600;">${a.round||1}차 · ${escapeHtml(a.type||'-')}</td>
-          <td style="padding:3px 8px;color:#5a6472;">평가부서</td><td style="padding:3px 8px;font-weight:600;">품질파트(QA)</td></tr>
+          <td style="padding:3px 8px;color:#5a6472;">${a.kind==='selfcheck'?'부서 / 평가자':'평가부서'}</td><td style="padding:3px 8px;font-weight:600;">${a.kind==='selfcheck' ? escapeHtml((userAccounts.fieldAuditors.find(f=>f.name===a.auditor)||{}).dept || '-')+' / '+escapeHtml(a.auditor||'-') : '품질파트(QA)'}</td></tr>
       <tr><td style="padding:3px 8px;color:#5a6472;">평가일자</td><td style="padding:3px 8px;font-weight:600;">${escapeHtml(a.date||'-')}</td>
           <td style="padding:3px 8px;color:#5a6472;">최종 종합점수</td><td style="padding:3px 8px;font-weight:700;color:#28344a;">${summary.finalScore.toFixed(1)}점 (${summary.finalBand? summary.finalBand.g : '-'})</td></tr>
     </table>
@@ -2011,7 +2183,10 @@ async function openEmailPdfFlow(){
     pdf.save(filename);
     const summary = computeAuditSummary(a);
     const subject = `${safeProject}_품질심사결과`;
-    const body = `품질파트에서 ${a.project||'해당'} 프로젝트 품질 심사 결과를 알려드립니다.\n\n- 회차: ${a.round||1}차 (${a.type||'-'})\n- 평가부서: 품질파트(QA)\n- 평가일자: ${a.date||'-'}\n- 최종 종합점수: ${summary.finalScore.toFixed(1)}점 (${summary.finalBand? summary.finalBand.g : '-'}등급)\n\n세부 내용(체크리스트·KPI·종합평가·지적사항)은 첨부된 "${filename}" 파일을 참고해 주시기 바랍니다.\n\n본 메일은 프로젝트 품질 평가시스템에서 발송되었습니다.\n\n감사합니다.`;
+    const deptLine = a.kind==='selfcheck'
+      ? `- 부서 / 평가자: ${(userAccounts.fieldAuditors.find(f=>f.name===a.auditor)||{}).dept || '-'} / ${a.auditor||'-'}`
+      : `- 평가부서: 품질파트(QA)`;
+    const body = `품질파트에서 ${a.project||'해당'} 프로젝트 품질 심사 결과를 알려드립니다.\n\n- 회차: ${a.round||1}차 (${a.type||'-'})\n${deptLine}\n- 평가일자: ${a.date||'-'}\n- 최종 종합점수: ${summary.finalScore.toFixed(1)}점 (${summary.finalBand? summary.finalBand.g : '-'}등급)\n\n세부 내용(체크리스트·KPI·종합평가·지적사항)은 첨부된 "${filename}" 파일을 참고해 주시기 바랍니다.\n\n본 메일은 프로젝트 품질 평가시스템에서 발송되었습니다.\n\n감사합니다.`;
     showToast('PDF가 다운로드되었습니다. 잠시 후 메일 작성 화면이 열립니다.');
     setTimeout(()=>{
       window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -2092,7 +2267,8 @@ function openLoginModal(){
     const facc = userAccounts.fieldAuditors.find(a=>a.name===id && a.password===pw);
     if(facc){
       role='field'; loggedInName=facc.name; fieldProjectId=facc.projectId; fieldSelectedProjectId=null; authRole='field'; authName=facc.name; authProjectId=facc.projectId; saveSessionLocal(); root.innerHTML=''; applyRoleUI(); showToast(`${facc.name}님(현장심사원)으로 로그인되었습니다`);
-      if(facc.password==='1234') setTimeout(openDefaultPasswordNotice, 350);
+      if(facc.password==='1234') setTimeout(()=>openDefaultPasswordNotice(()=>maybeShowAssigneeNotice(facc.name)), 350);
+      else setTimeout(()=>maybeShowAssigneeNotice(facc.name), 350);
     } else {
       document.getElementById('loginError').textContent='이름 또는 비밀번호가 올바르지 않습니다. (계정이 없다면 심사원에게 등록을 요청하세요)';
     }
@@ -2264,7 +2440,7 @@ function renderSidebar(){
     });
   } else if(role==='field' && !fieldBrowsing){
     header.style.display='none'; list.style.display='flex';
-    list.innerHTML = '<div style="color:#8994a8;font-size:11.5px;padding:8px;">배정된 프로젝트의 자체점검이 자동으로 열립니다.<br>다른 프로젝트 현황이 궁금하면 위 "전체 프로젝트 보기"를 눌러주세요.</div>';
+    list.innerHTML = '<div style="color:#8994a8;font-size:11.5px;padding:8px;">배정된 프로젝트의 자체점검이 자동으로 열립니다.<br>다른 프로젝트 현황이 궁금하면 위 "평가 진행현황 보기"를 눌러주세요.</div>';
   } else {
     header.style.display='none'; list.style.display='flex';
     if(page==='audit' && (deptProjectKey || deptSelfCheckId)){
@@ -2292,7 +2468,12 @@ function renderAuditWorkspaceEntry(){
     }
     if(!a){
       a = getCurrent();
-      if(!a){ if(audits.length){ combinedViewProjectId=null; currentId=audits[0].id; a=getCurrent(); } }
+      if(!a){
+        // 본인이 진행 중(미완료)인 심사가 있으면 이어서 열고, 없으면 아래 "표시할 심사가 없습니다" 안내로 넘어갑니다
+        // (예전에는 아무 심사나(본인 것이 아닐 수도 있음) 무작위로 열어 혼란을 줬습니다).
+        const myOngoing = audits.find(x=>x.auditor===loggedInName && !x.completed && (x.kind||'formal')==='formal');
+        if(myOngoing){ combinedViewProjectId=null; currentId=myOngoing.id; a=getCurrent(); }
+      }
     }
   } else if(role==='field' && !fieldBrowsing){
     let targetProjectId = fieldSelectedProjectId;
@@ -2322,7 +2503,7 @@ function renderAuditWorkspaceEntry(){
   }
   if(!a){
     document.querySelector('#page-audit .title-row').style.display='none';
-    const emptyMsg = '<div style="padding:24px;color:var(--ink-soft);text-align:center;">표시할 심사가 없습니다. 프로젝트 목록에서 "심사 시작"을 눌러주세요.</div>';
+    const emptyMsg = '<div style="padding:24px;color:var(--ink-soft);text-align:center;">진행 중인 심사가 없습니다.<br>프로젝트 목록에서 심사할 프로젝트를 선택해 "심사 열기"를 눌러주세요.<br><button class="btn primary" id="emptyGoProjectsBtn" style="margin-top:12px;">🗂 프로젝트 목록으로 이동</button></div>';
     if(document.getElementById('checklistZones')) document.getElementById('checklistZones').innerHTML = emptyMsg;
     if(document.getElementById('summaryGrid')) document.getElementById('summaryGrid').innerHTML = '';
     if(document.getElementById('kpiBody')) document.getElementById('kpiBody').innerHTML = '';
@@ -2332,6 +2513,8 @@ function renderAuditWorkspaceEntry(){
     if(document.getElementById('findingsBody')) document.getElementById('findingsBody').innerHTML = '';
     if(document.getElementById('findingSummary')) document.getElementById('findingSummary').innerHTML = '';
     if(document.getElementById('findingScopeNote')) document.getElementById('findingScopeNote').textContent = '';
+    const goBtn = document.getElementById('emptyGoProjectsBtn');
+    if(goBtn) goBtn.addEventListener('click', ()=> showPage('projects'));
     return;
   }
   document.querySelector('#page-audit .title-row').style.display='flex';
@@ -2348,7 +2531,7 @@ function renderAuditWorkspace(a){
   switchTab('checklist'); // always land on the checklist tab when opening/starting an audit
   const readOnly = !canEditAudit(a);
   const isDeptView = role==='dept';
-  document.getElementById('reauditBtn').style.display = (isAuditorSide() && !isSelfCheck && !a._isCombined)? 'inline-block':'none';
+  document.getElementById('reauditBtn').style.display = (isAuditorSide() && !isSelfCheck && !a._isCombined && (role==='master' || a.auditor===loggedInName))? 'inline-block':'none';
   document.getElementById('deleteBtn').style.display = (!readOnly && !isDeptView && !a._isCombined && (!isSelfCheck || role==='master'))? 'inline-block':'none';
   document.getElementById('saveBtn').style.display = (!readOnly && !isDeptView && !a._isCombined)? 'inline-block':'none';
   const completeBtn = document.getElementById('completeBtn');
@@ -2369,23 +2552,31 @@ function renderAuditWorkspace(a){
 
   const changesBox = document.getElementById('selfCheckChangesBox');
   if((a.round||1)>1){
-    const changes = computeSelfCheckChanges(a);
+    const segments = computeAllRoundChanges(a);
     const roundWord = isSelfCheck ? '자체점검' : '심사';
     changesBox.style.display = 'block';
-    if(!changes.length){
-      changesBox.innerHTML = `<h3>변경내역 (${(a.round||1)-1}차 → ${a.round||1}차)</h3><div class="hint">이전 ${roundWord} 회차 대비 변경된 항목이 없습니다.</div>`;
+    if(!segments.length){
+      changesBox.innerHTML = `<h3>🕘 변경내역</h3><div class="hint">이전 ${roundWord} 회차 기록을 찾을 수 없습니다.</div>`;
     } else {
-      const rowsHtml = changes.map(c=>`<tr>
-        <td><span class="zone-badge">${zoneLabel(c.item.zone)}</span></td>
-        <td><b>${c.item.name}</b></td>
-        <td>${c.prevScore===''?'(미입력)':(c.prevScore==='NA'?'N/A':c.prevScore+'점')}</td>
-        <td>→</td>
-        <td><b>${c.curScore===''?'(미입력)':(c.curScore==='NA'?'N/A':c.curScore+'점')}</b></td>
-        <td class="finding-remark">${escapeHtml(c.curRemark||'')}</td>
-      </tr>`).join('');
-      changesBox.innerHTML = `<h3>변경내역 (${(a.round||1)-1}차 → ${a.round||1}차) — 변경된 항목 ${changes.length}건</h3>
-        <table><thead><tr><th style="width:8%;">영역</th><th style="width:18%;">세부항목</th><th style="width:10%;">이전 점수</th><th style="width:4%;"></th><th style="width:10%;">현재 점수</th><th>현재 평가내역</th></tr></thead>
-        <tbody>${rowsHtml}</tbody></table>`;
+      const segHtml = segments.map((seg, i)=>{
+        const isLatest = i===segments.length-1;
+        const title = `${seg.fromRound}차 → ${seg.toRound}차 — 변경된 항목 ${seg.changes.length}건`;
+        const body = !seg.changes.length
+          ? `<div class="hint">이전 ${roundWord} 회차 대비 변경된 항목이 없습니다.</div>`
+          : `<div style="background:var(--panel);border-radius:4px;padding:2px 6px;margin-top:4px;"><table><thead><tr><th style="width:8%;">영역</th><th style="width:18%;">세부항목</th><th style="width:10%;">이전 점수</th><th style="width:4%;"></th><th style="width:10%;">현재 점수</th><th>현재 평가내역</th></tr></thead>
+            <tbody>${seg.changes.map(c=>`<tr>
+              <td><span class="zone-badge">${zoneLabel(c.item.zone)}</span></td>
+              <td><b>${c.item.name}</b></td>
+              <td>${c.prevScore===''?'(미입력)':(c.prevScore==='NA'?'N/A':c.prevScore+'점')}</td>
+              <td>→</td>
+              <td><b>${c.curScore===''?'(미입력)':(c.curScore==='NA'?'N/A':c.curScore+'점')}</b></td>
+              <td class="finding-remark">${escapeHtml(c.curRemark||'')}</td>
+            </tr>`).join('')}</tbody></table></div>`;
+        return segments.length>1
+          ? `<details ${isLatest?'open':''} style="margin-bottom:8px;background:${isLatest?'transparent':'rgba(255,255,255,.5)'};border-radius:4px;padding:0 6px;"><summary style="cursor:pointer;font-weight:700;font-size:13.5px;color:var(--navy);padding:6px 0;">🕘 ${title}</summary>${body}</details>`
+          : `<h3>🕘 ${title}</h3>${body}`;
+      }).join('');
+      changesBox.innerHTML = segments.length>1 ? `<h3>🕘 변경내역 (전체 ${segments.length}개 구간)</h3>${segHtml}` : segHtml;
     }
   } else {
     changesBox.style.display = 'none';
@@ -2419,7 +2610,9 @@ function renderAuditWorkspace(a){
   const fields = {f_project:'project', f_pm:'pm', f_qam:'qam', f_date:'date'};
   Object.keys(fields).forEach(id=>{ const el=document.getElementById(id); el.value=a[fields[id]]; el.disabled=readOnly; });
   document.getElementById('f_type').value = isSelfCheck ? '자체평가(현장)' : '내부평가(QA)';
-  document.getElementById('f_auditor').value = a.auditor||''; document.getElementById('f_auditor').disabled = true;
+  const maskAuditorIdentity = !isSelfCheck && (role==='dept' || (role==='field' && fieldBrowsing));
+  document.getElementById('f_auditor').value = maskAuditorIdentity ? '품질파트(QA)' : (a.auditor||'');
+  document.getElementById('f_auditor').disabled = true;
   const linkedProj = projects.find(p=>p.id===a.projectId);
   const orderNoEl = document.getElementById('f_orderno');
   if(linkedProj){
@@ -2465,7 +2658,8 @@ function renderChecklistTab(a, readOnly){
     const tbody=table.querySelector('tbody');
     items.forEach(t=>{
       const rec = a.scores[t.id] || {score:'',remark:''};
-      const displayRemark = (role==='dept') ? stripAuditorAttribution(rec.remark) : rec.remark;
+      const hideIdentity = role==='dept' || (role==='field' && fieldBrowsing);
+      const displayRemark = hideIdentity ? stripAuditorAttribution(rec.remark) : rec.remark;
       const tr=document.createElement('tr');
       const scoreCell = readOnly
         ? `<td>${renderScoreBadge(rec.score)}</td>`
@@ -2741,6 +2935,15 @@ function stripAuditorAttribution(text){
   if(!text) return text;
   return text.split(' / ').map(seg => seg.replace(/^\[[^\]]*\]\s*/, '')).join(' / ');
 }
+/** 담당자 드롭다운에 쓸 옵션 목록: 등록된 심사원 + 현장심사원 계정 이름.
+ *  기존에 자유 텍스트로 저장된 값이 계정 목록에 없으면(예전 데이터) 그 값도 함께 보여줍니다. */
+function assigneeOptionsHtml(current){
+  const names = new Set();
+  userAccounts.auditors.forEach(a=>names.add(a.name));
+  userAccounts.fieldAuditors.forEach(a=>names.add(a.name));
+  if(current) names.add(current);
+  return Array.from(names).map(n=>`<option value="${escapeAttr(n)}" ${n===current?'selected':''}>${escapeHtml(n)}</option>`).join('');
+}
 function renderFindingsTab(a){
   const body=document.getElementById('findingsBody');
   const summaryEl=document.getElementById('findingSummary');
@@ -2761,21 +2964,45 @@ function renderFindingsTab(a){
       <div class="box resolved"><div class="n">0</div><div class="l">조치완료</div></div>`;
     return;
   }
+  const canEditTracking = (role==='master' || role==='auditor');
   findings.forEach(f=>{
     const tr=document.createElement('tr');
     tr.className='finding-row '+(f.resolved?'resolved':'open');
     const firstFlag = f.flaggedScores.find(s=>s.round===f.flaggedRound) || f.flaggedScores[0];
-    const hideAuditor = role==='dept';
+    const hideAuditor = role==='dept' || (role==='field' && fieldBrowsing);
     const mainRemark = f.latestRemark || (firstFlag&&firstFlag.remark) || '(평가내역 미입력)';
     const scoreAttribution = firstFlag ? (firstFlag.score+'점'+(hideAuditor?' (품질파트(QA))':' ('+firstFlag.auditor+')')) : '-';
+    const trackKey = a.projectId+':'+f.item.id;
+    if(!findingTracking[trackKey]){
+      const proj = projects.find(p=>p.id===a.projectId);
+      if(proj && proj.pm){ findingTracking[trackKey] = {assignee: proj.pm}; scheduleAutoSave(); }
+    }
+    const track = findingTracking[trackKey] || {};
+    const ro = canEditTracking ? '' : 'disabled';
     tr.innerHTML = `<td><span class="zone-badge">${zoneLabel(f.item.zone)}</span></td>
       <td><b>${f.item.name}</b></td>
       <td class="finding-remark">${escapeHtml(hideAuditor? stripAuditorAttribution(mainRemark) : mainRemark)}</td>
       <td>회차 ${f.flaggedRound}</td>
       <td>${scoreAttribution}${firstFlag&&firstFlag.remark? `<div class="finding-remark">${escapeHtml(hideAuditor? stripAuditorAttribution(firstFlag.remark) : firstFlag.remark)}</div>`:''}</td>
       <td>${f.avgLatest!==null? f.avgLatest.toFixed(1)+'점 (회차 '+f.maxRound+')' : '-'}</td>
-      <td><span class="status-pill ${f.resolved?'resolved':'open'}">${f.resolved?'시정완료':'미조치'}</span></td>`;
+      <td><span class="status-pill ${f.resolved?'resolved':'open'}">${f.resolved?'시정완료':'미조치'}</span></td>
+      <td><select class="track-in" data-trackkey="${trackKey}" data-trackfield="assignee" style="width:100%;font-size:11px;padding:3px 4px;" ${ro}>
+        <option value="">조치담당자 선택</option>
+        ${assigneeOptionsHtml(track.assignee)}
+      </select></td>
+      <td><input type="date" class="track-in" data-trackkey="${trackKey}" data-trackfield="dueDate" value="${escapeAttr(track.dueDate||'')}" style="width:100%;font-size:10.5px;padding:3px 4px;" ${ro}></td>
+      <td><input type="date" class="track-in" data-trackkey="${trackKey}" data-trackfield="recheckDate" value="${escapeAttr(track.recheckDate||'')}" style="width:100%;font-size:10.5px;padding:3px 4px;" ${ro}></td>`;
     body.appendChild(tr);
+  });
+  body.querySelectorAll('.track-in').forEach(inp=>{
+    const handler = e=>{
+      const key = e.target.dataset.trackkey, field = e.target.dataset.trackfield;
+      if(!findingTracking[key]) findingTracking[key] = {};
+      findingTracking[key][field] = e.target.value;
+      scheduleAutoSave();
+    };
+    inp.addEventListener('input', handler);
+    inp.addEventListener('change', handler);
   });
   const total = findings.length;
   const resolvedCount = findings.filter(f=>f.resolved).length;
@@ -3289,7 +3516,9 @@ function renderProjectsBody(visibleDefs){
     cells += `<td style="white-space:nowrap;">${p.notApplicable
       ? `<span class="status-chip na">비대상</span>`
       : (completedAuditorsList.length
-        ? completedAuditorsList.map(a=>`<button class="auditor-link" data-openaudit2="${a.id}">${escapeHtml(a.auditor||'(이름없음)')}${(a.round||1)>1?' ('+a.round+'차)':''}</button>`).join(' ')
+        ? (readOnlyViewer
+            ? `<span style="color:var(--ink-soft);font-size:11px;">완료 (${completedAuditorsList.length}명)</span>`
+            : completedAuditorsList.map(a=>`<button class="auditor-link" data-openaudit2="${a.id}">${escapeHtml(a.auditor||'(이름없음)')}${(a.round||1)>1?' ('+a.round+'차)':''}</button>`).join(' '))
         : `<span style="color:var(--ink-soft);font-size:11px;">${st.status==='progress'?'진행중':'-'}</span>`)}</td>`;
     const scSt = computeSelfCheckStatus(p.id);
     const scChipClass = scSt.status==='done'?'done':(scSt.status==='progress'?'progress':(scSt.status==='na'?'na':'none'));
@@ -3297,7 +3526,12 @@ function renderProjectsBody(visibleDefs){
     const myCompleted = audits.find(a=>a.projectId===p.id && a.auditor===loggedInName && a.completed && (a.kind||'formal')==='formal');
     let actionHtml;
     if(readOnlyViewer){
-      actionHtml = p.notApplicable ? `<span class="status-chip na">비대상</span>` : `<span style="color:var(--ink-soft);font-size:10.5px;">열람 전용</span>`;
+      const hasAnyCompleted = getProjectAudits(p.id).some(x=>x.completed) || getSelfCheckRecords(p.id).some(x=>x.completed);
+      actionHtml = p.notApplicable
+        ? `<span class="status-chip na">비대상</span>`
+        : (hasAnyCompleted
+            ? `<button class="btn primary" data-viewreadonly="${p.id}" style="font-size:10.5px;padding:5px 8px;">평가보기</button>`
+            : `<span style="color:var(--ink-soft);font-size:10.5px;">완료된 심사 없음</span>`);
     } else {
       actionHtml = myCompleted
         ? `<button class="btn primary" data-viewmine="${p.id}" style="font-size:10.5px;padding:5px 8px;">평가보기</button>`
@@ -3311,6 +3545,12 @@ function renderProjectsBody(visibleDefs){
     cells += `<td>${actionHtml}</td>`;
     tr.innerHTML = cells;
     body.appendChild(tr);
+  });
+  body.querySelectorAll('button[data-viewreadonly]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      deptProjectKey = btn.dataset.viewreadonly; deptSelfCheckId = null;
+      showPage('audit');
+    });
   });
   body.querySelectorAll('input[data-sel]').forEach(inp=>{
     inp.addEventListener('change', e=>{ projects[+e.target.dataset.sel].selected = e.target.checked; });
@@ -3420,6 +3660,7 @@ function reallyCreateNew(){
 }
 function startReaudit(){
   const a = getCurrent(); if(!a) return;
+  if(role!=='master' && a.auditor!==loggedInName){ showToast('본인이 평가한 심사만 재심사할 수 있습니다.'); return; }
   const pid = a.projectId || a.id;
   const nextRound = getMaxRound(pid)+1;
   const clone = emptyAudit({
@@ -3716,6 +3957,7 @@ function bindProjectToolbar(){
     scheduleAutoSave();
   });
   document.getElementById('exportDataBtn').addEventListener('click', exportAllData);
+  document.getElementById('exportResultsExcelBtn').addEventListener('click', exportResultsToExcel);
   document.getElementById('importDataBtn').addEventListener('click', ()=>{ document.getElementById('importFileInput').click(); });
   document.getElementById('importFileInput').addEventListener('change', e=>{
     if(e.target.files && e.target.files[0]) importAllData(e.target.files[0]);
@@ -3744,9 +3986,6 @@ async function init(){
   applyRoleUI();
 }
 init();
-</script>
-</body>
-</html>
 </script>
 </body>
 </html>
