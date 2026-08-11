@@ -125,8 +125,12 @@ var _SP_CONFIG = {
   scopes:      ['Sites.Read.All']
 };
 
-// 실제 앱 파일이 저장된 SharePoint 경로 (문서 라이브러리 기준 상대경로)
-var APP_FILE_PATH = "/appsource/Audit-QA.html";
+// [수정 3] "appsource"는 기본 문서 라이브러리(Documents) 안의 폴더가 아니라,
+// SharePoint 문서 라이브러리 URL에 "Forms/AllItems.aspx"가 붙는 것으로 보아
+// 그 자체가 별도의 문서 라이브러리(=Graph 관점에서는 별도 드라이브)일 가능성이 높음.
+// 그래서 경로를 "라이브러리 이름"과 "그 라이브러리 안에서의 파일 경로"로 분리함.
+var APP_LIBRARY_NAME = "appsource";       // SharePoint 문서 라이브러리(드라이브) 이름
+var APP_FILE_PATH_IN_LIBRARY = "/Audit-QA.html"; // 그 라이브러리 루트 기준 파일 경로
 
 // [수정 2] SharePoint 클래식 REST API(_api/web/GetFileByServerRelativeUrl)는
 // 외부 origin(GitHub Pages)에서 호출 시 CORS를 지원하지 않아 브라우저에서 막힐 가능성이 큼.
@@ -134,7 +138,7 @@ var APP_FILE_PATH = "/appsource/Audit-QA.html";
 // 아래 sitePath는 루트 사이트 컬렉션 기준으로 가정한 것으로,
 // 실제 사이트가 서브사이트(예: /sites/영업관리)라면 GRAPH_SITE_PATH를 그에 맞게 수정해야 함.
 var GRAPH_SITE_HOST = 'tis21.sharepoint.com';
-var GRAPH_SITE_PATH = ''; // 서브사이트인 경우 예: '/sites/영업관리' (앞에 슬래시, 뒤에 슬래시 없음)
+var GRAPH_SITE_PATH = '/sites/allcompany'; // [수정] 서브사이트로 변경됨 (https://tis21.sharepoint.com/sites/allcompany)
 
 function _setStatus(mainId, text, sub){
   var el = document.getElementById(mainId);
@@ -172,6 +176,15 @@ function _buildGraphFileContentUrl(siteId, filePath){
   var encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
   return 'https://graph.microsoft.com/v1.0/sites/' + siteId + '/drive/root:' + encodedPath + ':/content';
 }
+// [수정 3] 사이트 안의 드라이브(문서 라이브러리) 목록 조회 URL
+function _buildGraphDrivesUrl(siteId){
+  return 'https://graph.microsoft.com/v1.0/sites/' + siteId + '/drives';
+}
+// [수정 3] 특정 드라이브(라이브러리) 안에서 파일 콘텐츠 조회 URL
+function _buildGraphDriveFileContentUrl(driveId, filePath){
+  var encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+  return 'https://graph.microsoft.com/v1.0/drives/' + driveId + '/root:' + encodedPath + ':/content';
+}
 
 // 로그인 완료(또는 리다이렉트 복귀) 후, SharePoint에서 진짜 앱을 받아와 통째로 교체
 async function _loadRealApp(account){
@@ -194,18 +207,40 @@ async function _loadRealApp(account){
     var siteData = await siteRes.json();
     var siteId = siteData.id;
 
-    // [수정 2] 2단계: 파일 콘텐츠 다운로드 (Graph)
-    var fileUrl = _buildGraphFileContentUrl(siteId, APP_FILE_PATH);
-    var res = await fetch(fileUrl, {
-      headers: { 'Authorization': 'Bearer ' + tokenResp.accessToken }
+    // [수정 3] 2단계: 사이트 안의 드라이브(문서 라이브러리) 목록을 조회해서
+    // 이름이 APP_LIBRARY_NAME("appsource")인 드라이브를 찾음.
+    var drivesRes = await fetch(_buildGraphDrivesUrl(siteId), {
+      headers: { 'Authorization': 'Bearer ' + tokenResp.accessToken, 'Accept': 'application/json' }
     });
+    if(!drivesRes.ok){
+      throw new Error('SharePoint 문서 라이브러리 목록을 가져오지 못했습니다 (HTTP ' + drivesRes.status + ').');
+    }
+    var drivesData = await drivesRes.json();
+    var drives = (drivesData && drivesData.value) || [];
+    var targetDrive = drives.find(function(d){
+      return (d.name || '').toLowerCase() === APP_LIBRARY_NAME.toLowerCase();
+    });
+
+    var res;
+    if(targetDrive){
+      // "appsource"가 별도 라이브러리(드라이브)로 확인된 경우 - 그 드라이브 루트 기준으로 요청
+      var driveFileUrl = _buildGraphDriveFileContentUrl(targetDrive.id, APP_FILE_PATH_IN_LIBRARY);
+      res = await fetch(driveFileUrl, { headers: { 'Authorization': 'Bearer ' + tokenResp.accessToken } });
+    } else {
+      // 혹시 "appsource"라는 이름의 드라이브가 없다면(=기본 라이브러리 안의 폴더였을 가능성 대비)
+      // 기존 방식(기본 드라이브 root:/appsource/파일)으로 한 번 더 시도
+      console.warn('[안내] "' + APP_LIBRARY_NAME + '" 이름의 문서 라이브러리를 찾지 못해 기본 드라이브 경로로 재시도합니다.');
+      var fallbackPath = '/' + APP_LIBRARY_NAME + APP_FILE_PATH_IN_LIBRARY;
+      var fallbackUrl = _buildGraphFileContentUrl(siteId, fallbackPath);
+      res = await fetch(fallbackUrl, { headers: { 'Authorization': 'Bearer ' + tokenResp.accessToken } });
+    }
 
     if(!res.ok){
       if(res.status === 401 || res.status === 403){
         throw new Error('로그인은 정상적으로 완료됐지만, 이 앱 데이터에 접근할 권한이 없습니다. 관리자에게 SharePoint 접근 권한 부여를 요청해주세요.');
       }
       if(res.status === 404){
-        throw new Error('SharePoint에서 파일을 찾을 수 없습니다 (HTTP 404). APP_FILE_PATH("' + APP_FILE_PATH + '") 경로와 GRAPH_SITE_PATH 설정이 실제 파일 위치와 일치하는지 확인해주세요.');
+        throw new Error('SharePoint에서 파일을 찾을 수 없습니다 (HTTP 404). 문서 라이브러리 이름("' + APP_LIBRARY_NAME + '")과 파일 경로("' + APP_FILE_PATH_IN_LIBRARY + '")가 실제 위치와 일치하는지 확인해주세요.');
       }
       throw new Error('SharePoint 파일을 불러오지 못했습니다 (HTTP ' + res.status + ').');
     }
