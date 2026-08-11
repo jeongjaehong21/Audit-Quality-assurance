@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>품질심사 콘솔 — 로그인</title>
+<script src="msal-browser.min.js"></script>
+<style>
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Malgun Gothic,sans-serif;
+    background:linear-gradient(135deg,#1c2430,#2c3a4d);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .card{
+    background:#ffffff;border-radius:12px;padding:40px 36px;width:340px;
+    box-shadow:0 12px 40px rgba(0,0,0,.35);text-align:center;
+  }
+  .card h1{font-size:19px;margin:0 0 6px;color:#1c2430;}
+  .card p.sub{font-size:12.5px;color:#5a6472;margin:0 0 28px;}
+  .spinner{
+    width:34px;height:34px;border:3px solid #dfe4ee;border-top-color:#2f5aa8;
+    border-radius:50%;margin:0 auto 16px;animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  #statusText{font-size:12.5px;color:#5a6472;min-height:18px;margin-bottom:18px;white-space:pre-line;}
+  #loginBtn{
+    display:none;width:100%;padding:11px;border:none;border-radius:6px;
+    background:#2f5aa8;color:#fff;font-size:14px;font-weight:600;cursor:pointer;
+  }
+  #loginBtn:hover{background:#28497f;}
+  #loginBtn:disabled{opacity:.6;cursor:not-allowed;}
+  #errorBox{display:none;background:#f7e7e4;color:#a5433a;border-radius:6px;padding:10px 12px;font-size:11.5px;text-align:left;margin-top:14px;line-height:1.5;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>품질심사 콘솔</h1>
+    <p class="sub">Microsoft 계정으로 로그인 후 앱을 불러옵니다</p>
+    <div id="spinner" class="spinner"></div>
+    <div id="statusText">초기 상태 확인 중...</div>
+    <button id="loginBtn">🔗 Microsoft 계정으로 로그인</button>
+    <div id="errorBox"></div>
+  </div>
+
+<script>
+/* =======================================================================
+   품질심사 콘솔 — 로그인 셸 (GitHub Pages 전용)
+   =======================================================================
+   이 파일은 로그인 화면만 담당합니다. 실제 앱(체크리스트/KPI/계정관리 등)은
+   전부 SharePoint 문서 라이브러리에 있고, 로그인에 성공하면 그 내용을 그대로
+   불러와 이 페이지 위에 그려서 실행합니다.
+
+   ⚠️ 아래 코드 전체가 즉시실행함수(IIFE)로 감싸여 있습니다 — 실제 앱 코드와
+   변수 이름이 절대 겹치지 않도록 하기 위한 안전장치이니 이 구조를 유지해 주세요.
+   ======================================================================= */
+(function(){
+  'use strict';
+
+  var SHELL_CFG = {
+    clientId: 'bfbe9d7a-674f-4a6c-b533-1faf8dd99ee4',
+    tenantId: 'd626830a-2676-4b41-aa6b-80ee7c719351',
+    authority: 'https://login.microsoftonline.com/d626830a-2676-4b41-aa6b-80ee7c719351',
+    siteUrl: 'https://tis21.sharepoint.com/sites/allcompany',
+    redirectUri: window.location.origin + window.location.pathname,
+    scopes: ['https://tis21.sharepoint.com/.default'],
+  };
+  // 실제 앱 소스 파일 위치(SharePoint 문서 라이브러리). 배포 담당자가 실제 경로에 맞게 한 번 확인해 주세요.
+  var APP_SOURCE_SERVER_RELATIVE_URL = '/SiteAssets/Audit-QA.html';
+
+  var elSpinner = document.getElementById('spinner');
+  var elStatus = document.getElementById('statusText');
+  var elLoginBtn = document.getElementById('loginBtn');
+  var elError = document.getElementById('errorBox');
+
+  function setStatus(msg){ elStatus.textContent = msg; }
+  function showError(title, detail){
+    elSpinner.style.display = 'none';
+    elError.style.display = 'block';
+    elError.innerHTML = '<b>' + title + '</b><br>' + (detail||'');
+  }
+  function showLoginButton(){
+    elSpinner.style.display = 'none';
+    elLoginBtn.style.display = 'block';
+    setStatus('회사 Microsoft 계정으로 로그인해 주세요.');
+  }
+
+  var msalApp = null;
+  function getMsalApp(){
+    if(typeof msal === 'undefined'){
+      return Promise.reject(new Error('MSAL 라이브러리(msal-browser.min.js)를 불러오지 못했습니다. 이 파일과 같은 폴더에 있는지 확인해 주세요.'));
+    }
+    var app = new msal.PublicClientApplication({
+      auth: {
+        clientId: SHELL_CFG.clientId,
+        authority: SHELL_CFG.authority,
+        redirectUri: SHELL_CFG.redirectUri,
+      },
+      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true },
+    });
+    return app.initialize().then(function(){ msalApp = app; return app; });
+  }
+
+  function fetchAppSource(token){
+    setStatus('앱을 불러오는 중입니다...');
+    var url = SHELL_CFG.siteUrl + "/_api/web/GetFileByServerRelativeUrl('" + APP_SOURCE_SERVER_RELATIVE_URL + "')/$value";
+    return fetch(url, { headers: { 'Authorization': 'Bearer ' + token } }).then(function(res){
+      if(!res.ok){
+        throw new Error('앱 소스를 SharePoint에서 가져오지 못했습니다 (상태 코드 ' + res.status + '). 파일 경로(' + APP_SOURCE_SERVER_RELATIVE_URL + ')와 권한을 확인해 주세요.');
+      }
+      return res.text();
+    });
+  }
+
+  function bootApp(html, token, tokenExpiry, account){
+    // 실제 앱이 재로그인 없이 이 토큰을 바로 이어받아 쓸 수 있게 넘겨줍니다.
+    window.__SP_AUTH_HANDOFF = { token: token, tokenExpiry: tokenExpiry, account: account };
+    document.open();
+    document.write(html);
+    document.close();
+  }
+
+  function proceedWithToken(tokenResult){
+    var expiry = tokenResult.expiresOn ? new Date(tokenResult.expiresOn).getTime() - 60000 : (Date.now() + 5*60000);
+    fetchAppSource(tokenResult.accessToken).then(function(html){
+      bootApp(html, tokenResult.accessToken, expiry, tokenResult.account);
+    }).catch(function(e){
+      console.error(e);
+      showError('앱을 불러오지 못했습니다', e.message + '<br><br>새로고침 후 다시 시도해 주세요. 계속 실패하면 관리자에게 문의해 주세요.');
+    });
+  }
+
+  function tryInteractiveLogin(){
+    elLoginBtn.disabled = true;
+    setStatus('Microsoft 로그인 화면으로 이동합니다...');
+    getMsalApp().then(function(app){
+      return app.loginRedirect({ scopes: SHELL_CFG.scopes }); // 페이지를 떠났다가 로그인 후 돌아옵니다
+    }).catch(function(e){
+      console.error(e);
+      elLoginBtn.disabled = false;
+      showError('로그인을 시작하지 못했습니다', e.message);
+    });
+  }
+
+  function init(){
+    getMsalApp().then(function(app){
+      // 리디렉션으로 로그인하고 돌아온 경우 처리
+      return app.handleRedirectPromise().then(function(redirectResult){
+        if(redirectResult && redirectResult.account){
+          app.setActiveAccount(redirectResult.account);
+          proceedWithToken(redirectResult);
+          return;
+        }
+        // 이미 이 브라우저에 로그인된 세션이 있으면 조용히(팝업 없이) 이어서 진행
+        var account = app.getActiveAccount() || app.getAllAccounts()[0];
+        if(account){
+          setStatus('로그인 확인 중...');
+          return app.acquireTokenSilent({ scopes: SHELL_CFG.scopes, account: account })
+            .then(proceedWithToken)
+            .catch(function(){
+              return app.ssoSilent({ scopes: SHELL_CFG.scopes })
+                .then(proceedWithToken)
+                .catch(function(){ showLoginButton(); });
+            });
+        }
+        return app.ssoSilent({ scopes: SHELL_CFG.scopes })
+          .then(proceedWithToken)
+          .catch(function(){ showLoginButton(); });
+      });
+    }).catch(function(e){
+      console.error(e);
+      showError('로그인 초기화 중 오류가 발생했습니다', e.message);
+    });
+  }
+
+  elLoginBtn.addEventListener('click', tryInteractiveLogin);
+  init();
+})();
+</script>
+</body>
+</html>
