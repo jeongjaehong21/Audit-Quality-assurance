@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>프로젝트 품질심사 &amp; KPI 종합평가 콘솔</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
@@ -298,10 +299,12 @@
   <aside class="sidebar">
     <div class="brand">품질심사 콘솔<small>Project Audit &amp; KPI Console</small></div>
 
-    <div id="githubBox" style="display:none;background:rgba(255,255,255,.06);border-radius:5px;padding:8px 9px;font-size:10.5px;">
-      <div id="githubStatus" style="color:#c3cad8;margin-bottom:6px;white-space:pre-line;">GitHub 연동 대기 중</div>
-      <button class="side-btn" id="githubSettingsBtn" style="width:100%;font-size:11px;padding:7px;">🔗 GitHub 연동 설정</button>
+    <div id="spBox" style="background:rgba(255,255,255,.06);border-radius:5px;padding:8px 9px;font-size:10.5px;">
+      <div id="spStatus" style="display:none;color:#c3cad8;margin-bottom:4px;white-space:pre-line;"></div>
+      <button class="side-btn" id="spConnectBtn" style="display:none;width:100%;font-size:11px;padding:7px;">🔗 SharePoint 연결하기</button>
+      <div id="spConnectedHint" style="display:none;color:#8b95a8;font-size:10px;">SharePoint 계정으로 자동 연동됩니다.</div>
     </div>
+    <div id="githubBox" style="display:none;"><div id="githubStatus"></div><button class="side-btn" id="githubSettingsBtn" style="display:none;"></button></div>
 
     <div class="role-switch" id="roleSwitchBox">
       <button id="roleAuditorBtn">🔒 심사원 모드</button>
@@ -834,22 +837,20 @@ function githubLog(msg){
 }
 /** 마스터/심사원에게만 버튼을 보여주고, 본인 토큰이 저장되어 있으면 버튼 텍스트를
  *  "연동완료"로, 아니면 경고 문구와 함께 "GitHub 연동 설정"으로 표시합니다. */
-function updateGithubButtonState(showButton){
-  const btn = document.getElementById('githubSettingsBtn');
+function updateSPConnectUI(connected){
+  const btn = document.getElementById('spConnectBtn');
+  const hint = document.getElementById('spConnectedHint');
+  if(btn) btn.style.display = connected ? 'none' : 'block';
+  if(hint) hint.style.display = connected ? 'block' : 'none';
+}
+function bindSPConnectButton(){
+  const btn = document.getElementById('spConnectBtn');
   if(!btn) return;
-  btn.style.display = showButton ? 'block' : 'none';
-  if(!showButton){
-    githubLog('');
-    return;
-  }
-  const connected = githubVerifiedConnected && !!getGithubPersonalConfig().token;
-  btn.textContent = connected ? '✅ GitHub 연동완료 (설정 변경)' : '🔗 GitHub 연동 설정';
-  btn.classList.toggle('connected', connected);
-  if(connected){
-    githubLog('');
-  } else {
-    githubLog('⚠️ 본인 GitHub 토큰이 필요합니다. "GitHub 연동 설정"에서 입력해 주세요(입력 전까지는 이 브라우저에만 저장됩니다).');
-  }
+  btn.addEventListener('click', async ()=>{
+    btn.disabled = true;
+    try{ await connectSPInteractive(); } // 여기서 페이지를 떠났다가 돌아옵니다
+    catch(e){ spSetStatus('⚠️ 연결 실패: '+e.message, true); btn.disabled = false; }
+  });
 }
 
 let githubIssueCache = null; // { [dataKey]: {number, body} }
@@ -892,6 +893,204 @@ async function ghLoadIssueCache(){
   }
   githubVerifiedConnected = true;
 }
+/* ================= SharePoint(MSAL) 저장 계층 =================
+ * 회사 프록시가 api.github.com을 차단해서, 이미 신뢰된 M365 도메인(login.microsoftonline.com,
+ * *.sharepoint.com)만 쓰는 이 방식으로 저장 계층을 교체합니다. 아래 인터페이스(get/value/shared)는
+ * githubStorage와 동일하므로, 이 블록 밖의 나머지 앱 코드는 손댈 필요가 없습니다. */
+const SP_CONFIG = {
+  tenantId: 'd626830a-2676-4b41-aa6b-80ee7c719351',
+  clientId: 'bfbe9d7a-674f-4a6c-b533-1faf8dd99ee4',
+  siteUrl: 'https://tis21.sharepoint.com',
+  listName: 'QA_AppData',
+  redirectUri: window.location.origin + window.location.pathname,
+};
+let _spStatusEl = null;
+function spSetStatus(msg, isError){
+  if(!_spStatusEl) _spStatusEl = document.getElementById('spStatus');
+  if(_spStatusEl){ _spStatusEl.textContent = msg||''; _spStatusEl.style.color = isError ? '#c0453a' : 'inherit'; _spStatusEl.style.display = msg ? 'block' : 'none'; }
+}
+
+let _msalApp = null;
+let _msalAppP = null;
+function getMSALApp(){
+  if(_msalAppP) return _msalAppP;
+  if(typeof msal === 'undefined') return Promise.reject(new Error('MSAL 라이브러리(msal-browser.min.js)를 불러오지 못했습니다. 같은 폴더에 파일이 있는지 확인해 주세요.'));
+  const app = new msal.PublicClientApplication({
+    auth: {
+      clientId: SP_CONFIG.clientId,
+      authority: 'https://login.microsoftonline.com/' + SP_CONFIG.tenantId,
+      redirectUri: SP_CONFIG.redirectUri,
+    },
+    cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true },
+  });
+  _msalAppP = app.initialize().then(()=>{ _msalApp = app; return app; });
+  return _msalAppP;
+}
+
+let _spToken = null;
+let _spTokenExpiry = 0;
+const SP_SCOPE = new URL(SP_CONFIG.siteUrl).origin + '/.default';
+
+/** 페이지가 스스로 로드될 때(사용자 클릭 없이) 시도하는 조용한 연결.
+ *  이미 이 브라우저에 M365 로그인 세션이 있으면(회사 PC에서 흔함) 팝업/화면전환 없이 조용히 성공합니다.
+ *  실패해도 에러를 던지지 않고 그냥 null을 반환합니다 — 팝업 차단 문제를 피하기 위해 절대 로그인 창을 열지 않습니다. */
+async function trySPTokenSilent(){
+  try{
+    const app = await getMSALApp();
+    let account = app.getActiveAccount() || app.getAllAccounts()[0];
+    let tokenResult;
+    if(account){
+      tokenResult = await app.acquireTokenSilent({ scopes:[SP_SCOPE], account });
+    } else {
+      tokenResult = await app.ssoSilent({ scopes:[SP_SCOPE] });
+    }
+    _spToken = tokenResult.accessToken;
+    _spTokenExpiry = tokenResult.expiresOn ? new Date(tokenResult.expiresOn).getTime() - 60000 : Date.now() + 5*60000;
+    spSetStatus('');
+    return _spToken;
+  }catch(e){
+    return null;
+  }
+}
+/** 로그인 버튼 클릭 등 "사용자 동작" 안에서만 호출해야 합니다.
+ *  브라우저는 사용자 클릭 없이 열리는 로그인 화면전환/팝업을 차단하므로, 반드시 클릭 핸들러
+ *  안에서 바로(await 여러 번 거치지 않고) 호출해야 안전합니다. */
+async function connectSPInteractive(){
+  const app = await getMSALApp();
+  spSetStatus('Microsoft 계정으로 로그인 중...');
+  try{ if(typeof session!=='undefined' && session) localStorage.setItem('_savedSession', JSON.stringify(session)); }catch(e0){}
+  localStorage.setItem('_spPending','1');
+  localStorage.setItem('_spPendingTs', Date.now().toString());
+  await app.loginRedirect({ scopes:[SP_SCOPE] }); // 페이지를 떠났다가 로그인 후 자동으로 돌아옵니다
+}
+/** 리디렉션으로 로그인하고 돌아온 직후 1회 호출 — 반환된 인증 결과를 처리하고,
+ *  떠나기 전 저장해둔 세션이 있으면 복원합니다. */
+async function handleSPRedirectReturn(){
+  try{
+    const app = await getMSALApp();
+    const result = await app.handleRedirectPromise();
+    if(result && result.account){
+      app.setActiveAccount(result.account);
+      _spToken = result.accessToken;
+      _spTokenExpiry = result.expiresOn ? new Date(result.expiresOn).getTime() - 60000 : Date.now() + 5*60000;
+    }
+    if(localStorage.getItem('_spPending')){
+      localStorage.removeItem('_spPending');
+      localStorage.removeItem('_spPendingTs');
+      const saved = localStorage.getItem('_savedSession');
+      if(saved){
+        try{ Object.assign(session, JSON.parse(saved)); }catch(e1){}
+        localStorage.removeItem('_savedSession');
+      }
+    }
+  }catch(e){
+    console.error('SharePoint 리디렉션 처리 실패:', e);
+    spSetStatus('⚠️ Microsoft 로그인 처리 중 오류: '+e.message, true);
+  }
+}
+async function getSPToken(){
+  if(_spToken && Date.now() < _spTokenExpiry) return _spToken;
+  const silent = await trySPTokenSilent();
+  if(silent) return silent;
+  // 자동으로는 여기서 로그인 화면을 열지 않습니다(브라우저가 차단함) — 대신 호출부가
+  // "SharePoint 연결이 필요합니다" 상태를 사용자에게 보여주고, 버튼 클릭 시 connectSPInteractive()를 부르게 합니다.
+  spSetStatus('⚠️ SharePoint 연결이 필요합니다. 아래 "SharePoint 연결하기" 버튼을 눌러주세요.', true);
+  throw new Error('SharePoint 연결이 필요합니다(버튼을 눌러 로그인해 주세요)');
+}
+
+let _spDigest = null;
+let _spDigestExpiry = 0;
+async function getSPDigest(){
+  if(_spDigest && Date.now() < _spDigestExpiry) return _spDigest;
+  const token = await getSPToken();
+  const res = await fetch(SP_CONFIG.siteUrl + '/_api/contextinfo', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json;odata=verbose' },
+  });
+  if(!res.ok) throw new Error('SharePoint 인증 컨텍스트를 가져오지 못했습니다 (' + res.status + ')');
+  const data = await res.json();
+  _spDigest = data.d.GetContextWebInformation.FormDigestValue;
+  _spDigestExpiry = Date.now() + (data.d.GetContextWebInformation.FormDigestTimeoutSeconds - 30) * 1000;
+  return _spDigest;
+}
+
+let _spListItemType = null;
+async function getSPListItemType(){
+  if(_spListItemType) return _spListItemType;
+  const token = await getSPToken();
+  const res = await fetch(SP_CONFIG.siteUrl + `/_api/web/lists/getbytitle('${SP_CONFIG.listName}')?$select=ListItemEntityTypeFullName`, {
+    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json;odata=verbose' },
+  });
+  if(!res.ok) throw new Error(`SharePoint 리스트("${SP_CONFIG.listName}")를 찾을 수 없습니다 (` + res.status + ')');
+  const data = await res.json();
+  _spListItemType = data.d.ListItemEntityTypeFullName;
+  return _spListItemType;
+}
+
+let _spItemCache = null; // key -> {id, body}
+async function loadSPItemCache(){
+  const token = await getSPToken();
+  const items = {};
+  let url = SP_CONFIG.siteUrl + `/_api/web/lists/getbytitle('${SP_CONFIG.listName}')/items?$select=Id,Title,body&$top=200`;
+  while(url){
+    const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json;odata=verbose' } });
+    if(!res.ok) throw new Error('SharePoint 목록을 불러오지 못했습니다 (' + res.status + ')');
+    const data = await res.json();
+    (data.d.results||[]).forEach(it=>{ items[it.Title] = { id: it.Id, body: it.body||'' }; });
+    url = (data.d.__next) || null;
+  }
+  _spItemCache = items;
+  return items;
+}
+function spInvalidateCache(){ _spItemCache = null; }
+
+const spStorage = {
+  async get(key){
+    if(!_spItemCache) await loadSPItemCache();
+    const rec = _spItemCache[key];
+    return rec ? { key, value: rec.body, shared: true } : null;
+  },
+  async set(key, value){
+    if(!_spItemCache) await loadSPItemCache();
+    const token = await getSPToken();
+    const digest = await getSPDigest();
+    const rec = _spItemCache[key];
+    if(rec){
+      const res = await fetch(SP_CONFIG.siteUrl + `/_api/web/lists/getbytitle('${SP_CONFIG.listName}')/items(${rec.id})`, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Accept': 'application/json;odata=verbose',
+          'Content-Type': 'application/json;odata=verbose',
+          'X-RequestDigest': digest,
+          'X-HTTP-Method': 'MERGE',
+          'IF-MATCH': '*',
+        },
+        body: JSON.stringify({ body: value }),
+      });
+      if(!res.ok && res.status !== 204) throw new Error('SharePoint 저장 실패 (' + res.status + ')');
+      rec.body = value;
+      return { key, value, shared: true };
+    } else {
+      const itemType = await getSPListItemType();
+      const res = await fetch(SP_CONFIG.siteUrl + `/_api/web/lists/getbytitle('${SP_CONFIG.listName}')/items`, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Accept': 'application/json;odata=verbose',
+          'Content-Type': 'application/json;odata=verbose',
+          'X-RequestDigest': digest,
+        },
+        body: JSON.stringify({ __metadata: { type: itemType }, Title: key, body: value }),
+      });
+      if(!res.ok) throw new Error('SharePoint 저장 실패 (' + res.status + ')');
+      const data = await res.json();
+      _spItemCache[key] = { id: data.d.Id, body: value };
+      return { key, value, shared: true };
+    }
+  },
+};
+
 const githubStorage = {
   async get(key){
     if(!githubIssueCache) await ghLoadIssueCache();
@@ -998,17 +1197,26 @@ function initGithubStorage(){
   }
 }
 /** 통합 storage 어댑터 — 아래 loadAll/persistAll은 이 객체만 사용합니다.
- *  우선순위: GitHub Issues(연동 설정 완료 시, 전 직원 실시간 공유) > localStorage(설정 전 임시, 이 브라우저 전용) */
+ *  우선순위: SharePoint(회사 M365 계정, 전 직원 실시간 공유) > localStorage(연결 실패 시 임시, 이 브라우저 전용)
+ *  (예전 GitHub Issues 방식은 회사 프록시가 api.github.com을 차단해서 SharePoint로 교체했습니다.) */
 const storage = {
   async get(key, shared){
-    if(githubConfigReady()) return githubStorage.get(key);
-    if(localStorageOK()) return localStorageBackend.get(key);
-    return null;
+    try{ return await spStorage.get(key); }
+    catch(e){
+      console.error('SharePoint 불러오기 실패:', e);
+      spSetStatus('⚠️ SharePoint 연결 실패: '+e.message, true);
+      if(localStorageOK()) return localStorageBackend.get(key);
+      return null;
+    }
   },
   async set(key, value, shared){
-    if(githubConfigReady()) return githubStorage.set(key, value);
-    if(localStorageOK()) return localStorageBackend.set(key, value);
-    throw new Error('no storage backend available');
+    try{ return await spStorage.set(key, value); }
+    catch(e){
+      console.error('SharePoint 저장 실패:', e);
+      spSetStatus('⚠️ SharePoint 저장 실패: '+e.message, true);
+      if(localStorageOK()) return localStorageBackend.set(key, value);
+      throw e;
+    }
   }
 };
 
@@ -1133,7 +1341,7 @@ function assignSeq(a){
 
 /* ================= Storage (SHARED) ================= */
 function storageBackendAvailable(){
-  return githubConfigReady() || localStorageOK();
+  return true || localStorageOK(); // SharePoint(MSAL)는 항상 시도 가능 — 실패 시 storage.get/set이 자동으로 localStorage로 전환
 }
 async function loadAll(){
   if(!storageBackendAvailable()){ return; } // no built-in persistence — use 내보내기/가져오기(JSON) instead
@@ -1193,13 +1401,19 @@ let auditsHashAtLoad = null;
 /** 저장 직전, 다른 사용자가 그 사이에 이미 저장했는지(=내가 불러온 이후 데이터가 바뀌었는지) 확인합니다.
  *  충돌이 감지되면 덮어쓰지 않고 경고합니다. */
 async function checkAuditsConflict(){
-  if(!githubConfigReady() || auditsHashAtLoad===null) return false;
+  if(auditsHashAtLoad===null) return false;
   try{
-    if(!githubIssueCache) await ghLoadIssueCache();
-    const rec = githubIssueCache['audits_index_v3'];
+    if(!_spItemCache) await loadSPItemCache();
+    const rec = _spItemCache['audits_index_v3'];
     if(!rec) return false;
-    const fresh = await ghApi(`/issues/${rec.number}`); // 캐시를 거치지 않고 GitHub에서 직접 최신 값을 확인합니다
-    const remoteHash = hashStr(fresh&&fresh.body ? fresh.body : '');
+    const token = await getSPToken();
+    // 캐시를 거치지 않고 SharePoint에서 직접 최신 값을 확인합니다
+    const res = await fetch(SP_CONFIG.siteUrl + `/_api/web/lists/getbytitle('${SP_CONFIG.listName}')/items(${rec.id})?$select=body`, {
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json;odata=verbose' },
+    });
+    if(!res.ok) return false;
+    const data = await res.json();
+    const remoteHash = hashStr(data.d && data.d.body ? data.d.body : '');
     return remoteHash !== auditsHashAtLoad;
   }catch(e){ return false; }
 }
@@ -2244,10 +2458,7 @@ function openLoginModal(){
     if(id==='admin'){
       if(pw===userAccounts.masterPassword){
         role='master'; loggedInName='admin'; authRole='master'; authName='admin'; authProjectId=null; saveSessionLocal(); root.innerHTML=''; applyRoleUI(); showToast('마스터 관리자로 로그인되었습니다');
-        if(!getGithubPersonalConfig().token){
-          showToast('마스터는 본인 GitHub 토큰을 입력해야 데이터가 저장·공유됩니다.');
-          setTimeout(openGithubSettingsModal, 400);
-        } else if(fieldAuditorRequests.some(r=>r.status==='pending')){
+        if(fieldAuditorRequests.some(r=>r.status==='pending')){
           setTimeout(openFieldApprovalModal, 400);
         }
       } else { document.getElementById('loginError').textContent='비밀번호가 올바르지 않습니다.'; }
@@ -2256,10 +2467,7 @@ function openLoginModal(){
     const acc = userAccounts.auditors.find(a=>a.name===id && a.password===pw);
     if(acc){
       role='auditor'; loggedInName=acc.name; authRole='auditor'; authName=acc.name; authProjectId=null; saveSessionLocal(); root.innerHTML=''; applyRoleUI(); showToast(`${acc.name}님으로 로그인되었습니다`);
-      if(!getGithubPersonalConfig().token){
-        showToast('심사원은 본인 GitHub 토큰을 입력해야 데이터가 저장·공유됩니다.');
-        setTimeout(openGithubSettingsModal, 400);
-      } else if(fieldAuditorRequests.some(r=>r.status==='pending')){
+      if(fieldAuditorRequests.some(r=>r.status==='pending')){
         setTimeout(openFieldApprovalModal, 400);
       }
       return;
@@ -2303,9 +2511,6 @@ function applyRoleUI(){
   const fieldReqBtn = document.getElementById('fieldRequestBtn');
   if(fieldReqBtn) fieldReqBtn.style.display = isDept ? 'block' : 'none';
   updateFieldRequestNotiButton();
-  // GitHub 연동 설정은 본인 토큰을 입력해야 하는 마스터/심사원만 누를 수 있게 하고,
-  // 현장심사원/수행부서는 자동 토큰으로 이미 연결되어 있으므로 버튼을 숨깁니다.
-  updateGithubButtonState(isAuditorSide);
   const banner=document.getElementById('roleBanner');
   banner.className = 'role-banner '+((isAuditorSide||isField)?'auditor':'dept');
   banner.textContent = isMaster? `🔓 마스터 관리자(${loggedInName}) — 모든 기능(삭제 포함)을 사용할 수 있습니다.`
@@ -3966,8 +4171,10 @@ function bindProjectToolbar(){
 }
 async function init(){
   loadSessionLocal();
-  try{ initGithubStorage(); }catch(err){ console.error('GitHub storage init error (non-fatal):', err); }
-  await loadAll();
+  await handleSPRedirectReturn(); // 리디렉션으로 로그인하고 돌아온 경우, loadAll() 전에 토큰을 먼저 반영
+  bindSPConnectButton();
+  await loadAll(); // 내부적으로 조용한(silent) 연결을 먼저 시도하고, 안 되면 자동으로 localStorage로 대체합니다
+  updateSPConnectUI(!!(_spToken && Date.now() < _spTokenExpiry));
   bindNav();
   bindMetaFields();
   bindProjectToolbar();
